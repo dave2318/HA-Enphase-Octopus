@@ -1,0 +1,172 @@
+blueprint:
+  name: "Energy: Smart Export Controller"
+  description: >-
+    Dynamic battery export arbitrage based on Octopus Energy rates and Enphase/Solcast data.
+    Automatically exports to the grid when profitable while maintaining dynamic winter/summer reserves.
+  domain: automation
+  input:
+    cfg_sensor_soc:
+      name: Battery SOC Sensor
+      description: The sensor tracking your physical battery percentage.
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    cfg_sensor_export_rate:
+      name: Octopus Export Rate
+      description: Your current Octopus Export price sensor.
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_import_rate:
+      name: Octopus Import Rate
+      description: Your current Octopus Import price sensor.
+      selector:
+        entity:
+          domain: sensor
+    cfg_switch_export:
+      name: Battery Export Switch
+      description: The switch that forces your battery to discharge to the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_switch_charge:
+      name: Battery Grid Charge Switch
+      description: The switch that forces your battery to charge from the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_notify_service:
+      name: Notification Entity
+      description: The entity ID where you want to receive alerts (e.g., notify.gmail).
+      default: notify.gmail
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+
+mode: single
+
+triggers:
+  - id: rate_change
+    entity_id:
+      - !input cfg_sensor_export_rate
+      - !input cfg_sensor_import_rate
+    trigger: state
+  - id: soc_change
+    entity_id: !input cfg_sensor_soc
+    trigger: state
+  - minutes: /10
+    trigger: time_pattern
+  - at: "00:00:00"
+    trigger: time
+
+actions:
+  - condition: template
+    value_template: >-
+      {% set dtg = states[cfg_switch_export].last_changed %}  {% set cfg =
+      states[cfg_switch_charge].last_changed %}  {% set dtg_ok = dtg is none or
+      (now() - dtg).total_seconds() > 120 %}  {% set cfg_ok = cfg is none or
+      (now() - cfg).total_seconds() > 120 %}  {{ dtg_ok and cfg_ok }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ should_export_goal }}"
+          - condition: template
+            value_template: "{{ is_state(cfg_switch_export, 'off') }}"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ cfg_switch_export }}"
+          - action: logbook.log
+            data:
+              name: Smart Export Controller
+              message: >-
+                Started Export. Reason: {{ 'Price Profitability' if
+                is_profitable else 'Smart Peak Surplus' }}. SOC: {{ soc_val }}%,
+                Winter Floor: {{ export_floor_val }}%
+              entity_id: "{{ cfg_switch_export }}"
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: >-
+                💰 Export Active: {{ 'Price Profit' if is_profitable else 'Smart Peak' }}
+              message: |
+                STATUS: STARTING EXPORT
+                REASON: {{ 'Price Profitability' if is_profitable else 'Smart Peak Surplus' }}
+
+                [SYSTEM STATE]
+                - Battery SOC: {{ soc_val }}%
+                - Dynamic Reserve: {{ reserve_val }}%
+                - Winter Floor: {{ export_floor_val }}%
+                - Winter Mode: {{ 'ON' if is_winter else 'Off' }}
+
+                [PRICING & CALCULATIONS]
+                - Export Rate: {{ export_rate_val }}p
+                - Import Rate: {{ import_rate_val }}p
+                - Current Net Profit: {{ (export_rate_val - (import_rate_val / sys_rte)) | round(2) }}p/kWh
+      - conditions:
+          - condition: template
+            value_template: "{{ not should_export_goal }}"
+          - condition: template
+            value_template: "{{ is_state(cfg_switch_export, 'on') }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ cfg_switch_export }}"
+          - action: logbook.log
+            data:
+              name: Smart Export Controller
+              message: "Stopped Export. Primary Reason: {{ stop_reason_long }}"
+              entity_id: "{{ cfg_switch_export }}"
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "🛡️ Export Stopped: {{ stop_reason_short }}"
+              message: |
+                STATUS: STOPPING EXPORT
+                PRIMARY REASON: {{ stop_reason_long }}
+
+                [DETAILED DIAGNOSTICS]
+                - Battery SOC: {{ soc_val }}%
+                - Dynamic Reserve: {{ reserve_val }}%
+                - Winter Safety Floor: {{ export_floor_val }}%
+                - Winter Mode: {{ 'ACTIVE' if is_winter else 'Inactive' }}
+
+variables:
+  cfg_sensor_soc: !input cfg_sensor_soc
+  cfg_sensor_export_rate: !input cfg_sensor_export_rate
+  cfg_sensor_import_rate: !input cfg_sensor_import_rate
+  cfg_switch_export: !input cfg_switch_export
+  cfg_switch_charge: !input cfg_switch_charge
+  cfg_notify_service: !input cfg_notify_service
+  
+  sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
+  soc_val: "{{ states(cfg_sensor_soc) | float(0) }}"
+  export_floor_val: "{{ states('sensor.battery_export_floor') | float(0) }}"
+  reserve_val: "{{ states('sensor.dynamic_reserve') | float(0) }}"
+  export_rate_val: "{{ states(cfg_sensor_export_rate) | float(0) }}"
+  import_rate_val: "{{ states(cfg_sensor_import_rate) | float(0) }}"
+  is_winter: "{{ is_state('input_boolean.winter_mode', 'on') }}"
+  is_profitable: "{{ states('sensor.export_profitability') | float(0) > 0 }}"
+  is_cheap: "{{ is_state('binary_sensor.in_cheap_import_window', 'on') }}"
+  is_peak: "{{ is_state('binary_sensor.in_peak_window', 'on') }}"
+  car_charging: "{{ is_state('binary_sensor.hard_block_active', 'on') }}"
+  is_smart_peak: "{{ is_state('binary_sensor.smart_peak_export_active', 'on') }}"
+  
+  should_export_goal: >-
+    {% set blocked = is_cheap or car_charging %}  {% set profit_ok =
+    is_profitable and (not is_winter or soc_val > export_floor_val) %}  {{ not
+    blocked and (profit_ok or is_smart_peak) }}
+  
+  stop_reason_short: >-
+    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif soc_val <
+    reserve_val %}Reserve{% else %}Idle{% endif %}
+  
+  stop_reason_long: >-
+    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid
+    import rates are in the cheap window.{% elif soc_val < reserve_val and not
+    is_peak %}SOC ({{ soc_val }}%) is below reserve ({{ reserve_val }}%).{% elif
+    is_winter and soc_val < export_floor_val and not is_smart_peak %}Winter Mode
+    safety: SOC ({{ soc_val }}%) is below floor ({{ export_floor_val }}%).{%
+    else %}Export is no longer profitable.{% endif %}

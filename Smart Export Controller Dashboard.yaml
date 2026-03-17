@@ -1,0 +1,260 @@
+title: Energy & Export
+views:
+  - title: Smart Export Controller
+    path: smart_export_controller
+    icon: mdi:solar-power
+    cards:
+      - type: custom:power-flow-card-plus
+        entities:
+          grid:
+            entity: sensor.grid_net_power_kw
+            display_state: both
+            secondary_info:
+              entity: sensor.grid_energy_import_today
+              unit_of_measurement: kWh
+            export:
+              entity: sensor.grid_energy_export_today
+              unit_of_measurement: kWh
+          solar:
+            entity: sensor.solar_production_clean_kw
+            display_state: both
+            secondary_info:
+              entity: sensor.envoy_EnvoyMAC_energy_production_today
+              unit_of_measurement: kWh
+          battery:
+            entity: sensor.envoy_EnvoyMAC_battery
+            state_of_charge: sensor.envoy_EnvoyMAC_battery
+            color_icon: true
+            display_state: state
+            secondary_info:
+              entity: sensor.calculated_battery_daily_discharge
+              unit_of_measurement: kWh
+          home:
+            entity: sensor.house_consumption_clean_kw
+            display_state: both
+            secondary_info:
+              entity: sensor.envoy_EnvoyMAC_energy_consumption_today
+              unit_of_measurement: kWh
+        clickable_entities: true
+        display_zero_lines: true
+        w_to_kw: false
+        kw_decimals: 2
+      - type: glance
+        title: Financial Summary
+        entities:
+          - entity: >-
+              sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate
+            name: Import Rate
+          - entity: >-
+              sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate
+            name: Export Rate
+          - entity: sensor.export_profitability
+            name: Net Profit/kWh
+          - entity: sensor.today_export_profit_accumulative
+            name: Earned Today
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            name: Battery SOC
+            unit: '%'
+            entity: sensor.envoy_EnvoyMAC_battery
+            min: 0
+            max: 100
+            severity:
+              green: 20
+              yellow: 10
+              red: 0
+          - type: gauge
+            name: Real-Time Export Profit
+            unit: p
+            entity: sensor.export_profitability
+            min: -15
+            max: 35
+            needle: true
+            severity:
+              green: 0.1
+              yellow: -5
+              red: -15
+      - type: markdown
+        title: Next Expected Behaviour
+        content: >
+          {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+          {% set floor = states('sensor.battery_export_floor') | float(0) %} {%
+          set reserve = states('sensor.dynamic_reserve') | float(0) %} {% set
+          winter = is_state('input_boolean.winter_mode', 'on') %} {% set
+          is_profitable = states('sensor.export_profitability') | float(0) > 0
+          %} {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  {%
+          set smart_peak = is_state('binary_sensor.smart_peak_export_active',
+          'on') %}
+
+          **Current Strategy:** {% if car %}
+            🚗 **BLOCK:** EV is charging or in cheap window.
+          {% elif winter and is_profitable and soc < floor %}
+            ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter floor ({{floor}}%).
+          {% elif soc < reserve and not is_profitable and not smart_peak %}
+            🔋 **HOLDING:** SOC {{soc}}% is below Reserve ({{reserve}}%).
+          {% elif is_profitable or smart_peak %}
+            💸 **EXPORTING:** Active for {{ 'Profit' if is_profitable else 'Smart Peak Surplus' }}.
+          {% else %}
+            🏠 **HOUSE LOAD:** Saving power for home usage.
+          {% endif %}
+      - type: markdown
+        title: 🚦 Export Logic Checklist
+        content: >
+          {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+          {% set floor = states('sensor.battery_export_floor') | float(0) %} {%
+          set profit_val = states('sensor.export_profitability') | float(0) %}
+          {% set winter = is_state('input_boolean.winter_mode', 'on') %} {% set
+          car = is_state('binary_sensor.hard_block_active', 'on') %} {% set peak
+          = is_state('binary_sensor.in_peak_window', 'on') %}  {% set smart_peak
+          = is_state('binary_sensor.smart_peak_export_active', 'on') %}
+
+          **Blocks** - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} -
+          Winter Safety Check {{ '✅' if not winter or (winter and soc > floor)
+          or smart_peak else '⚠️' }}
+
+          **Triggers** - Profit Opportunity ({{ profit_val }}p) {{ '✅' if
+          profit_val > 0 else '❌' }} - Smart Peak Surplus {{ '✅' if smart_peak
+          else '❌' }}
+
+          --- **System Verdict:** {% if car %}
+            🛑 BLOCKED (EV/CHEAP)
+          {% elif winter and profit_val > 0 and soc < floor and not smart_peak
+          %}
+            ❄️ WINTER PROTECT
+          {% elif profit_val > 0 or smart_peak %}
+            ✅ READY TO EXPORT
+          {% else %}
+            🏠 HOLDING FOR HOUSE
+          {% endif %}
+      - type: markdown
+        title: 🔋 Grid Charge Decision
+        content: >
+          {% set forecast = states('sensor.combined_solar_forecast_tomorrow') |
+          float(0) %} {% set threshold =
+          states('input_number.grid_charge_forecast_threshold') | float(0) %} {%
+          set charge_rec = is_state('binary_sensor.grid_charge_recommended',
+          'on') %}
+
+          **System Verdict:** {{ '✅ CHARGING TONIGHT' if charge_rec else '❌ NO
+          GRID CHARGE' }}
+
+          **Why?** {% if charge_rec %}
+            {% if forecast < threshold %}
+              ☁️ **Low Solar:** Tomorrow's forecast ({{ forecast }} kWh) is below your safety threshold ({{ threshold }} kWh).
+            {% else %}
+              📈 **Arbitrage Failsafe:** Forecast is high ({{ forecast }} kWh), but tomorrow's peak export rate makes it profitable to buy cheap night energy to sell later!
+            {% endif %}
+          {% else %}
+            ☀️ **Plenty of Sun:** Forecast ({{ forecast }} kWh) is above threshold ({{ threshold }} kWh), and arbitrage profit margins are too tight to force a charge.
+          {% endif %}
+      - type: entities
+        title: Controls & Overrides
+        show_header_toggle: false
+        entities:
+          - entity: switch.enphase_dtg_mode
+            name: Force Export / Last Action
+            type: simple-entity
+            secondary_info: last-changed
+          - entity: switch.enphase_cfg_mode
+            name: Force Charge / Last Action
+            type: simple-entity
+            secondary_info: last-changed
+      - type: entities
+        title: System Stats & Weather
+        entities:
+          - entity: binary_sensor.hard_block_active
+            name: Hard Block (EV/Cheap)
+          - entity: binary_sensor.in_peak_window
+            name: Peak Period
+          - entity: sensor.dynamic_reserve
+            name: Current Dynamic Reserve Target
+          - entity: sensor.battery_export_floor
+            name: Peak Export Floor
+          - entity: sensor.next_golden_export_slot
+            name: Today's Golden Export Slot
+          - entity: sensor.envoy_EnvoyMAC_energy_production_today
+            name: Generated Today
+          - entity: sensor.combined_solar_forecast_remaining
+            name: Solar Left Today
+          - entity: sensor.combined_solar_forecast_today
+            name: Total Expected Today
+          - entity: sensor.combined_solar_forecast_tomorrow
+            name: Total Expected Tomorrow
+          - entity: sensor.battery_time_remaining_real_world
+            name: Battery Hours Left (Smoothed)
+          - entity: sensor.battery_depleted_at
+            name: Expected Depletion Time
+          - entity: sensor.calculated_battery_daily_discharge
+            name: Discharged Today
+          - entity: sensor.calculated_battery_daily_charge
+            name: Charged Today
+          - entity: sensor.yesterday_battery_discharge_total
+            name: Discharged Yesterday
+      - type: history-graph
+        title: SOC vs Reserve (Last 24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.envoy_EnvoyMAC_battery
+            name: Battery SOC
+          - entity: sensor.dynamic_reserve
+            name: Reserve Target
+      - type: history-graph
+        title: Solar Generation (Last 24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.envoy_EnvoyMAC_current_power_production
+            name: Actual (kW)
+          - entity: sensor.combined_solar_forecast_power
+            name: Estimate (kW)
+      - type: history-graph
+        title: Solar Generation (Last Week)
+        hours_to_show: 168
+        entities:
+          - entity: sensor.envoy_EnvoyMAC_current_power_production
+            name: Actual (kW)
+      - type: history-graph
+        title: Profitability Trend (Last 24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.export_profitability
+            name: Net Profit (p)
+      - type: history-graph
+        title: Power Flow (Last 24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.solar_production_clean_kw
+            name: Solar Production (kW)
+          - entity: sensor.house_consumption_clean_kw
+            name: House Consumption (kW)
+          - entity: sensor.grid_net_power_kw
+            name: Grid Net Import/Export (kW)
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: Gateway Health Monitor
+            show_header_toggle: false
+            entities:
+              - entity: binary_sensor.enphase_gateway_status
+                name: Current Connection
+                secondary_info: last-changed
+              - entity: sensor.envoy_EnvoyMAC_battery
+                name: Gateway Heartbeat (SOC)
+          - type: logbook
+            title: Recent Connection Drops
+            entities:
+              - binary_sensor.enphase_gateway_status
+            hours_to_show: 48
+      - type: entities
+        entities:
+          - entity: input_number.battery_capacity_kwh
+          - entity: input_number.grid_charge_forecast_threshold
+          - entity: input_number.battery_efficiency_rte
+          - entity: input_number.winter_evening_usage_kwh
+          - entity: input_number.summer_evening_usage_kwh
+          - entity: input_number.winter_reserve_floor
+          - entity: input_number.summer_reserve_floor
+          - entity: input_boolean.winter_mode
+            icon: mdi:snowflake
+        title: System Variables

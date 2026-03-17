@@ -1,0 +1,110 @@
+blueprint:
+  name: "Energy: Daily Battery ROI Audit"
+  description: Sends a daily midday summary of savings and earnings from the smart export system.
+  domain: automation
+  input:
+    cfg_sensor_soc:
+      name: Battery SOC Sensor
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    cfg_export_kwh:
+      name: Octopus Export Accumulative Consumption (kWh)
+      selector:
+        entity:
+          domain: sensor
+    cfg_export_cost:
+      name: Octopus Export Accumulative Cost (£)
+      selector:
+        entity:
+          domain: sensor
+    cfg_import_kwh:
+      name: Octopus Import Accumulative Consumption (kWh)
+      selector:
+        entity:
+          domain: sensor
+    cfg_import_cost:
+      name: Octopus Import Accumulative Cost (£)
+      selector:
+        entity:
+          domain: sensor
+    cfg_event_import_today:
+      name: Octopus Import Rates Today
+      selector:
+        entity:
+          domain: event
+    cfg_switch_charge:
+      name: Battery Grid Charge Switch (CFG)
+      description: The switch that forces your battery to charge from the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_notify_service:
+      name: Notification Entity
+      default: notify.gmail
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+triggers:
+  - id: daily_audit
+    at: "12:05:00"
+    trigger: time
+
+actions:
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "📊 Daily Energy Audit: Yesterday"
+      message: |
+        YESTERDAY'S SUMMARY
+
+        ☀️ Solar Generated: {{ solar_gen_val | round(2) }} kWh
+        🔋 Peak Avoidance: £{{ "{:.2f}".format(discharge_val * peak_rate_val) }} (Savings from using battery instead of {{ (peak_rate_val * 100) | round(2) }}p grid power)
+
+        📥 Import Cost: £{{ "{:.2f}".format(import_cost_val) }} (From {{ import_kwh_val | round(2) }} kWh imported)
+        💸 Export Earnings: £{{ "{:.2f}".format(export_earnings_val) }} (From {{ export_kwh_val | round(2) }} kWh exported)
+        ⚖️ Net Balance: {{ 'PROFIT' if net_result > 0 else 'NET COST' }} of £{{ "{:.2f}".format(net_result | abs) }}
+
+        ------------------------------
+
+        NEW PREDICTIVE LOGIC
+        - Today's Combined Forecast: {{ states('sensor.combined_solar_forecast_today') }} kWh
+        - Peak Export Floor: {{ states('sensor.battery_export_floor') }}%
+        - Grid Charging (CFG): {{ states(cfg_switch_charge) }}
+
+        ------------------------------
+
+        SYSTEM HEALTH
+        - Current SOC: {{ max_soc_val }}%
+        - Efficiency Factor: {{ (sys_rte * 100) | round(0) }}% RTE
+        - Status: Logic Active
+
+variables:
+  cfg_notify_service: !input cfg_notify_service
+  cfg_sensor_soc: !input cfg_sensor_soc
+  cfg_export_kwh: !input cfg_export_kwh
+  cfg_export_cost: !input cfg_export_cost
+  cfg_import_kwh: !input cfg_import_kwh
+  cfg_import_cost: !input cfg_import_cost
+  cfg_event_import_today: !input cfg_event_import_today
+  cfg_switch_charge: !input cfg_switch_charge
+
+  sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
+  solar_gen_val: "{{ state_attr('sensor.solar_production_daily', 'last_period') | float(0) }}"
+  export_kwh_val: "{{ states(cfg_export_kwh) | float(0) }}"
+  export_earnings_val: "{{ states(cfg_export_cost) | float(0) }}"
+  import_kwh_val: "{{ states(cfg_import_kwh) | float(0) }}"
+  import_cost_val: "{{ states(cfg_import_cost) | float(0) }}"
+  discharge_val: "{{ states('sensor.yesterday_battery_discharge_total') | float(0) }}"
+  max_soc_val: "{{ states(cfg_sensor_soc) }}"
+  net_result: "{{ export_earnings_val - import_cost_val }}"
+  peak_rate_val: >
+    {% set import_rates = state_attr(cfg_event_import_today, 'rates') %}  {% set
+    ns = namespace(max_import=31.0) %}  {% if import_rates %}
+      {% for r in import_rates %}
+        {% if r.value_inc_vat > ns.max_import %}{% set ns.max_import = r.value_inc_vat %}{% endif %}
+      {% endfor %}
+    {% endif %}  {{ ns.max_import / 100 }}

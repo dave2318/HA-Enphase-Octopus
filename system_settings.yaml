@@ -1,0 +1,61 @@
+grid_charge_forecast_threshold:
+  name: Grid Charge Forecast Threshold
+  min: 0
+  max: 30
+  step: 0.5
+  unit_of_measurement: kWh
+  icon: mdi:sun-clock
+  initial: 12.0
+
+battery_capacity_kwh:
+  name: System Battery Capacity
+  icon: mdi:battery-high
+  unit_of_measurement: kWh
+  min: 1.0
+  max: 50.0
+  step: 0.1
+  initial: 5.0
+
+battery_efficiency_rte:
+  name: Battery Round Trip Efficiency
+  icon: mdi:percent-circle
+  min: 0.50
+  max: 1.00
+  step: 0.01
+  initial: 0.83
+
+winter_evening_usage_kwh:
+  name: Evening Usage Estimate (Winter)
+  icon: mdi:home-lightning-bolt
+  unit_of_measurement: kWh
+  min: 1.0
+  max: 20.0
+  step: 0.1
+  initial: 4.5
+
+summer_evening_usage_kwh:
+  name: Evening Usage Estimate (Summer)
+  icon: mdi:home-lightning-bolt
+  unit_of_measurement: kWh
+  min: 1.0
+  max: 20.0
+  step: 0.1
+  initial: 2.8
+
+winter_reserve_floor:
+  name: Minimum SOC Floor (Winter)
+  icon: mdi:battery-lock
+  unit_of_measurement: "%"
+  min: 5
+  max: 50
+  step: 1
+  initial: 30
+
+summer_reserve_floor:
+  name: Minimum SOC Floor (Summer)
+  icon: mdi:battery-lock
+  unit_of_measurement: "%"
+  min: 5
+  max: 50
+  step: 1
+  initial: 20

@@ -1,0 +1,72 @@
+blueprint:
+  name: "System: Enphase Gateway Connection Alert"
+  description: >-
+    Alerts when the Envoy Gateway drops offline or reconnects, protecting your energy data 
+    from corruption. Uses your battery SOC sensor as a heartbeat.
+  domain: automation
+  input:
+    cfg_sensor_soc:
+      name: Gateway Heartbeat Sensor (Battery SOC)
+      description: Select your battery SOC sensor. If this goes unavailable, the system assumes the gateway is down.
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    cfg_notify_service:
+      name: Notification Entity
+      default: notify.gmail
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: restart
+
+triggers:
+  - id: offline
+    entity_id: !input cfg_sensor_soc
+    to: unavailable
+    for:
+      minutes: 5
+    trigger: state
+  - id: online
+    entity_id: !input cfg_sensor_soc
+    from: unavailable
+    trigger: state
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: offline
+        sequence:
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: ⚠️ Enphase Gateway Offline
+              message: |
+                The Enphase Envoy has been unavailable for 5 minutes.  
+                Smart Export and Grid Charging automations are currently paused to prevent data corruption.
+          - action: logbook.log
+            data:
+              name: System Health
+              message: Gateway Connection Lost
+              entity_id: "{{ cfg_sensor_soc }}"
+      - conditions:
+          - condition: trigger
+            id: online
+        sequence:
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: ✅ Enphase Gateway Restored
+              message: |
+                Connection to the Envoy has been restored. Automations are back online.
+          - action: logbook.log
+            data:
+              name: System Health
+              message: Gateway Connection Restored
+              entity_id: "{{ cfg_sensor_soc }}"
+
+variables:
+  cfg_sensor_soc: !input cfg_sensor_soc
+  cfg_notify_service: !input cfg_notify_service

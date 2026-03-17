@@ -1,0 +1,323 @@
+# templates.yaml - Master Consolidated Version
+
+- sensor:
+    - name: "Today Export Profit"
+      unique_id: today_export_profit
+      unit_of_measurement: "£"
+      icon: mdi:cash-plus
+      state: >
+        {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+        {% set rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
+        {% set exported_kwh = states('sensor.grid_energy_export_today') | float(0) %}
+        {{ (exported_kwh * rate / 100) | round(2) }}
+        
+    - name: "Export Profitability"
+      unique_id: export_profitability_calc
+      unit_of_measurement: "p"
+      state: >
+        {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+        {% set raw_imp = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(0) %}
+        {% set export = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
+        {% set import = (raw_imp * 100) if raw_imp < 1.0 else raw_imp %}
+        {{ (export - (import / 0.83)) | round(2) }}
+
+    - name: "Battery Export Floor"
+      unique_id: battery_export_floor
+      unit_of_measurement: "%"
+      icon: mdi:slope-downhill
+      state: >
+        {% if is_state('input_boolean.winter_mode', 'on') %}
+          {% set evening_req_kwh = 4.5 %} 
+          {% set reserve_floor = 30.0 %}
+        {% else %}
+          {% set evening_req_kwh = 2.8 %} 
+          {% set reserve_floor = 20.0 %}
+        {% endif %}
+        {% set battery_cap_kwh = 5.0 %}
+        {% set rte = 0.83 %}
+        {% set solar_remaining = states('sensor.combined_solar_forecast_remaining') | float(0) %}
+        {% set gap = (evening_req_kwh - solar_remaining) %}
+        {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
+        {{ [reserve_floor, [needed_soc, 95]|min]|max | round(0) }}
+
+    - name: "Dynamic Reserve"
+      unique_id: dynamic_reserve_calc
+      unit_of_measurement: "%"
+      state: >
+        {% set forecast = states('sensor.combined_solar_forecast_today') | float(0) %}
+        {% set actual = states('sensor.envoy_EnvoyMAC_energy_production_today') | float(0) %}
+        {% if is_state('input_boolean.winter_mode', 'on') %}
+           {% if forecast > 10 %} 70 {% else %} 90 {% endif %}
+        {% else %}
+           {% if forecast > 8 or actual > 5 %} 60 
+           {% elif forecast > 3 or actual > 2 %} 75 
+           {% else %} 85 {% endif %}
+        {% endif %}
+
+    - name: "Solar Production Clean kW"
+      unique_id: solar_production_clean_kw
+      unit_of_measurement: "kW"
+      device_class: power
+      state: >
+        {% set val = states('sensor.envoy_EnvoyMAC_current_power_production') | float(0) %}
+        {{ (val if val < 100 else val / 1000) | round(2) }}
+
+    - name: "Grid Net Power kW"
+      unique_id: grid_net_power_kw
+      unit_of_measurement: "kW"
+      device_class: power
+      state: >
+        {{ states('sensor.envoy_EnvoyMAC_current_net_power_consumption') | float(0) | round(2) }}
+
+    - name: "House Consumption Clean kW"
+      unique_id: house_consumption_clean_kw
+      unit_of_measurement: "kW"
+      device_class: power
+      state: >
+        {% set val = states('sensor.envoy_EnvoyMAC_current_power_consumption') | float(0) %}
+        {{ (val if val < 100 else val / 1000) | round(2) }}
+
+    - name: "Battery Time Remaining Real World"
+      unique_id: battery_time_remaining_real_world
+      unit_of_measurement: "h"
+      icon: mdi:timer-sand
+      state: >
+        {% set capacity = 5.0 %}
+        {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) / 100 %}
+        {% set reserve = 0.06 %}
+        {% set rte = 0.83 %}
+        {% set avg_load = states('sensor.average_house_load_24h') | float(0) %}
+        {% if soc > reserve and avg_load > 0.1 %}
+          {{ ((soc - reserve) * capacity * rte / avg_load) | round(1) }}
+        {% else %} 0.0 {% endif %}
+
+    - name: "Battery Depleted At"
+      unique_id: battery_depleted_at
+      icon: mdi:clock-end
+      state: >
+        {% set hours = states('sensor.battery_time_remaining_real_world') | float(0) %}
+        {% if hours > 0 %} {{ (now() + timedelta(hours=hours)).strftime('%H:%M') }}
+        {% else %} "At Reserve" {% endif %}
+
+    - name: "Combined Solar Forecast Today"
+      unique_id: combined_solar_forecast_today
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.solcast_pv_forecast_forecast_today') | float(0) | round(2) }}"
+
+    - name: "Combined Solar Forecast Tomorrow"
+      unique_id: combined_solar_forecast_tomorrow
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.solcast_pv_forecast_forecast_tomorrow') | float(0) | round(2) }}"
+
+    - name: "Combined Solar Forecast Remaining"
+      unique_id: combined_solar_forecast_remaining
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) | round(2) }}"
+
+    - name: "Combined Solar Forecast Power"
+      unique_id: combined_solar_forecast_power
+      unit_of_measurement: "kW"
+      device_class: power
+      state: >
+        {% set forecast = state_attr('sensor.solcast_pv_forecast_forecast_today', 'detailed_forecast') %}
+        {% set current_time = now().replace(minute=0, second=0, microsecond=0) %}
+        {% if forecast is not none %}
+          {% for slot in forecast %}
+            {% if as_datetime(slot.period_start) == current_time %}
+              {{ slot.pv_estimate | float(0) | round(2) }}
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          0.0
+        {% endif %}
+
+- binary_sensor:
+    - name: "Grid Charge Recommended"
+      unique_id: grid_charge_recommended
+      state: >
+        {% set threshold = states('input_number.grid_charge_forecast_threshold') | float(12.0) %}
+        {% set forecast_low = states('sensor.combined_solar_forecast_tomorrow') | float(0) < threshold %}
+        {% set imp_today = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_current_day_rates', 'rates') or [] %}
+        {% set imp_tom = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_next_day_rates', 'rates') or [] %}
+        {% set all_imp = imp_today + imp_tom %}
+        {% set ns = namespace(charge_rates=[], max_export=0.0) %}
+        {% for r in all_imp %}
+          {% set dt = as_datetime(r.start) | as_local %}
+          {% if dt >= today_at('23:30') and dt < today_at('05:30') + timedelta(days=1) %}
+            {% set ns.charge_rates = ns.charge_rates + [r.value_inc_vat * 100] %}
+          {% endif %}
+        {% endfor %}
+        {% set exp_rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates', 'rates') or [] %}
+        {% for r in exp_rates %}
+            {% if (r.value_inc_vat * 100) > ns.max_export %}{% set ns.max_export = (r.value_inc_vat * 100) %}{% endif %}
+        {% endfor %}
+        {% set avg_import = (ns.charge_rates | sum / ns.charge_rates | length) if ns.charge_rates | length > 0 else 999.0 %}
+        {{ forecast_low or ns.max_export > (avg_import / 0.83) }}
+
+    - name: "Export Profitable"
+      unique_id: export_profitable
+      state: "{{ states('sensor.export_profitability') | float(0) > 0 }}"
+
+    - name: "In Cheap Import Window"
+      unique_id: in_cheap_window
+      state: >
+        {% set t = now().time() %}
+        {{ t >= strptime('23:30', '%H:%M').time() or t < strptime('06:30', '%H:%M').time() }}
+
+    - name: "In Peak Window"
+      unique_id: in_peak_window
+      state: >
+        {% set t = now().time() %}
+        {{ t >= strptime('16:30', '%H:%M').time() and t < strptime('19:00', '%H:%M').time() }}
+
+    - name: "Smart Peak Export Active"
+      unique_id: smart_peak_export_active
+      state: >
+        {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+        {% set floor = states('sensor.battery_export_floor') | float(0) %}
+        {% set ns = namespace(max_rate=0, max_start=none, max_end=none) %}
+        {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
+        {% for r in rates %}
+          {% set start_dt = as_datetime(r.start) | as_local %}
+          {% if start_dt.time() >= strptime('16:30', '%H:%M').time() and start_dt.time() < strptime('19:00', '%H:%M').time() %}
+            {% if r.value_inc_vat > ns.max_rate %}
+              {% set ns.max_rate = r.value_inc_vat %}
+              {% set ns.max_start = start_dt %}
+              {% set ns.max_end = as_datetime(r.end) | as_local %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {% set in_best = (now() >= ns.max_start and now() < ns.max_end) if ns.max_start else false %}
+        {{ in_best and soc > (floor + 1) }}
+
+    - name: "Hard Block Active"
+      unique_id: hard_block_binary
+      state: >
+        {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(99) %}
+        {% set import_rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
+        {{ is_state('binary_sensor.octopus_energy_00000000_0002_4000_8020_0000000ee0ee_intelligent_dispatching', 'on') 
+           or is_state('binary_sensor.in_cheap_import_window', 'on') 
+           or import_rate <= 7.5 }}
+
+    - name: "Enphase Gateway Status"
+      unique_id: enphase_gateway_status_binary
+      device_class: connectivity
+      state: "{{ 'off' if is_state('sensor.envoy_EnvoyMAC_battery', 'unavailable') else 'on' }}"
+
+- trigger:
+    - platform: state
+      entity_id: sensor.envoy_EnvoyMAC_available_battery_energy
+    - platform: time
+      at: "00:00:00"
+  sensor:
+    - name: "Calculated Battery Daily Discharge"
+      unique_id: calculated_battery_daily_discharge
+      unit_of_measurement: "kWh"
+      state_class: total_increasing
+      device_class: energy
+      state: >
+        {% set total = states('sensor.calculated_battery_daily_discharge') | float(0) %}
+        {% if trigger.platform == 'time' %} 
+          0.0
+        {% elif trigger.from_state is defined and trigger.to_state is defined %}
+          {% if trigger.to_state.state in ['unknown', 'unavailable'] or trigger.from_state.state in ['unknown', 'unavailable'] %}
+            {{ total }}
+          {% else %}
+            {% set current = trigger.to_state.state | float(0) %}
+            {% set previous = trigger.from_state.state | float(0) %}
+            {% if previous > current %} 
+              {{ (total + (previous - current) / 1000) | round(3) }}
+            {% else %} 
+              {{ total }} 
+            {% endif %}
+          {% endif %}
+        {% else %}
+          {{ total }}
+        {% endif %}
+
+    - name: "Calculated Battery Daily Charge"
+      unique_id: calculated_battery_daily_charge
+      unit_of_measurement: "kWh"
+      state_class: total_increasing
+      device_class: energy
+      state: >
+        {% set total = states('sensor.calculated_battery_daily_charge') | float(0) %}
+        {% if trigger.platform == 'time' %} 
+          0.0
+        {% elif trigger.from_state is defined and trigger.to_state is defined %}
+          {% if trigger.to_state.state in ['unknown', 'unavailable'] or trigger.from_state.state in ['unknown', 'unavailable'] %}
+            {{ total }}
+          {% else %}
+            {% set current = trigger.to_state.state | float(0) %}
+            {% set previous = trigger.from_state.state | float(0) %}
+            {% if current > previous %} 
+              {{ (total + (current - previous) / 1000) | round(3) }}
+            {% else %} 
+              {{ total }} 
+            {% endif %}
+          {% endif %}
+        {% else %}
+          {{ total }}
+        {% endif %}
+
+- trigger:
+    - platform: state
+      entity_id: sensor.grid_energy_export_today
+    - platform: time
+      at: "00:00:00"
+  sensor:
+    - name: "Today Export Profit Accumulative"
+      unique_id: today_export_profit_accumulative
+      unit_of_measurement: "£"
+      icon: mdi:cash-check
+      state: >
+        {% set current_profit = states('sensor.today_export_profit_accumulative') | float(0) %}
+        {% if trigger.platform == 'time' %} 
+          0.0
+        {% elif trigger.from_state is defined and trigger.to_state is defined %}
+          {% if trigger.to_state.state in ['unknown', 'unavailable'] or trigger.from_state.state in ['unknown', 'unavailable'] %}
+            {{ current_profit }}
+          {% else %}
+            {% set exported_now = (trigger.to_state.state | float(0)) - (trigger.from_state.state | float(0)) %}
+            {% if exported_now > 0 %}
+              {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+              {% set rate = ((raw_rate * 100) if raw_rate < 1.0 else raw_rate) / 100 %}
+              {{ (current_profit + (exported_now * rate)) | round(2) }}
+            {% else %} 
+              {{ current_profit }} 
+            {% endif %}
+          {% endif %}
+        {% else %} 
+          {{ current_profit }} 
+        {% endif %}
+
+- trigger:
+    - platform: state
+      entity_id: event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates
+  sensor:
+    - name: "Next Golden Export Slot"
+      unique_id: next_golden_export_slot
+      icon: mdi:star-clock
+      state: >
+        {% set ns = namespace(max_rate=0, start_time="None") %}
+        {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
+        {% for r in rates %}
+          {% set start = as_datetime(r.start) | as_local %}
+          {% if start.time() >= strptime('16:30', '%H:%M').time() and start.time() < strptime('19:00', '%H:%M').time() %}
+            {% if r.value_inc_vat > ns.max_rate %}
+              {% set ns.max_rate = r.value_inc_vat %}
+              {% set ns.start_time = start.strftime('%H:%M') %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.start_time }}
+
+- trigger:
+    - platform: time
+      at: "23:59:59"
+  sensor:
+    - name: "Yesterday Battery Discharge Total"
+      unique_id: yesterday_battery_discharge_total
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.calculated_battery_daily_discharge') }}"
+      

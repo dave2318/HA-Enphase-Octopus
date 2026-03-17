@@ -1,0 +1,166 @@
+blueprint:
+  name: "Energy: Battery Grid Charge Controller"
+  description: >-
+    Manages CFG mode based on solar forecast and arbitrage profitability.
+    Automatically charges the battery overnight if tomorrow's solar is low or if arbitrage margins are highly profitable.
+  domain: automation
+  input:
+    cfg_switch_export:
+      name: Battery Export Switch (DTG)
+      description: The switch that forces your battery to discharge to the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_switch_charge:
+      name: Battery Grid Charge Switch (CFG)
+      description: The switch that forces your battery to charge from the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_event_import_today:
+      name: Octopus Import Rates Today
+      description: Your current Octopus Import day rates event entity.
+      selector:
+        entity:
+          domain: event
+    cfg_event_import_tomorrow:
+      name: Octopus Import Rates Tomorrow
+      description: Your next day Octopus Import rates event entity.
+      selector:
+        entity:
+          domain: event
+    cfg_event_export_tomorrow:
+      name: Octopus Export Rates Tomorrow
+      description: Your next day Octopus Export rates event entity.
+      selector:
+        entity:
+          domain: event
+    cfg_notify_service:
+      name: Notification Entity
+      description: The entity ID where you want to receive audit alerts.
+      default: notify.gmail
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: single
+
+triggers:
+  - at: "23:30:00"
+    trigger: time
+
+actions:
+  - condition: template
+    value_template: >-
+      {% set dtg = states[cfg_switch_export].last_changed %}  {% set cfg =
+      states[cfg_switch_charge].last_changed %}  {% set dtg_ok = dtg is none or
+      (now() - dtg).total_seconds() > 120 %}  {% set cfg_ok = cfg is none or
+      (now() - cfg).total_seconds() > 120 %}  {{ dtg_ok and cfg_ok }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ not should_charge }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ cfg_switch_charge }}"
+          - action: logbook.log
+            data:
+              name: Grid Charge Controller
+              message: >-
+                Skipped Grid Charge. Forecast: {{ forecast_val }}kWh. Arbitrage
+                Profitable: {{ 'YES' if arb.profitable else 'NO' }}.
+              entity_id: "{{ cfg_switch_charge }}"
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "📊 Daily Energy Audit: CFG Stopped"
+              message: |
+                STATUS: GRID CHARGING OFF 
+                REASON: Forecast sufficient and Arbitrage not profitable.
+
+                SOLAR DATA: 
+                - Tomorrow's Forecast: {{ forecast_val }} kWh 
+                - Forecast Threshold: {{ threshold_val }} kWh
+
+                ARBITRAGE DATA (23:30 to 05:30 Avg): 
+                - Avg Night Import Rate: {{ arb.avg_import }}p 
+                - Best Export Tomorrow: {{ arb.max_export }}p (at {{ arb.e_time }}) 
+                - Projected Margin: {{ arb.margin }}p/kWh
+                - Profitable Arbitrage: {{ 'YES' if arb.profitable else 'NO' }}
+      - conditions:
+          - condition: template
+            value_template: "{{ should_charge }}"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ cfg_switch_charge }}"
+          - action: logbook.log
+            data:
+              name: Grid Charge Controller
+              message: "Started Grid Charge. Forecast: {{ forecast_val }}kWh."
+              entity_id: "{{ cfg_switch_charge }}"
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "📊 Daily Energy Audit: CFG Active"
+              message: |
+                STATUS: GRID CHARGING ON
+
+                SOLAR DATA: 
+                - Tomorrow's Forecast: {{ forecast_val }} kWh 
+                - Forecast Threshold: {{ threshold_val }} kWh
+
+                ARBITRAGE DATA (23:30 to 05:30 Avg): 
+                - Avg Night Import Rate: {{ arb.avg_import }}p 
+                - Best Export Tomorrow: {{ arb.max_export }}p (at {{ arb.e_time }}) 
+                - Projected Margin: {{ arb.margin }}p/kWh
+                - Profitable Arbitrage: {{ 'YES' if arb.profitable else 'NO' }}
+
+variables:
+  cfg_switch_export: !input cfg_switch_export
+  cfg_switch_charge: !input cfg_switch_charge
+  cfg_notify_service: !input cfg_notify_service
+  cfg_event_import_today: !input cfg_event_import_today
+  cfg_event_import_tomorrow: !input cfg_event_import_tomorrow
+  cfg_event_export_tomorrow: !input cfg_event_export_tomorrow
+  
+  sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
+  forecast_val: "{{ states('sensor.combined_solar_forecast_tomorrow') | float(0) }}"
+  threshold_val: "{{ states('input_number.grid_charge_forecast_threshold') | float(12.0) }}"
+  should_charge: "{{ is_state('binary_sensor.grid_charge_recommended', 'on') }}"
+  is_winter: "{{ is_state('input_boolean.winter_mode', 'on') }}"
+  arb: >
+    {% set imp_today = state_attr(cfg_event_import_today, 'rates') or [] %}  {%
+    set imp_tom = state_attr(cfg_event_import_tomorrow, 'rates') or [] %}  {%
+    set all_imp = imp_today + imp_tom %}  {% set exp_tom =
+    state_attr(cfg_event_export_tomorrow, 'rates') or [] %}  {% set start_charge
+    = today_at('23:30') %}   {% set end_charge = today_at('05:30') +
+    timedelta(days=1) %}  {% set ns = namespace(charge_rates=[], max_export=0.0,
+    max_export_time='None') %}  {% for r in all_imp %}
+      {% set dt = as_datetime(r.start) | as_local %}
+      {% if dt >= start_charge and dt < end_charge %}
+        {% set ns.charge_rates = ns.charge_rates + [r.value_inc_vat * 100] %}
+      {% endif %}
+    {% endfor %}  {% set avg_import = (ns.charge_rates | sum / ns.charge_rates |
+    length) if ns.charge_rates | length > 0 else 999.0 %}  {% for r in exp_tom
+    %}
+      {% set dt = as_datetime(r.start) | as_local %}
+      {% if dt >= end_charge %}
+        {% set val_pence = r.value_inc_vat * 100 %}
+        {% if val_pence > ns.max_export %}
+          {% set ns.max_export = val_pence %}
+          {% set ns.max_export_time = dt.strftime('%H:%M') %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}  {% set margin = ns.max_export - (avg_import / sys_rte) %}   {%
+    set profitable = margin > 0 and ns.max_export > 0 and avg_import != 999.0
+    %}  {{
+      {
+        "profitable": profitable, 
+        "margin": margin | round(2), 
+        "avg_import": avg_import | round(2), 
+        "max_export": ns.max_export | round(2), 
+        "e_time": ns.max_export_time
+      } 
+    }}

@@ -42,7 +42,11 @@ utility_meter:
     source: sensor.envoy_EnvoyMAC_lifetime_net_energy_production
     name: "Grid Energy Export Today"
     cycle: daily
-    
+
+  solar_production_daily:
+    source: sensor.envoy_482425023283_lifetime_energy_production
+    name: "Daily Solar Production"
+    cycle: daily    
 
 sensor:
   - platform: statistics

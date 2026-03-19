@@ -1,4 +1,4 @@
-blueprint:
+﻿blueprint:
   name: "Energy: Daily Battery ROI Audit"
   description: Sends a daily midday summary of savings and earnings from the smart export system.
   domain: automation
@@ -42,7 +42,7 @@ blueprint:
           domain: switch
     cfg_notify_service:
       name: Notification Entity
-      default: notify.gmail
+      default: notify.notify
       selector:
         text:
 

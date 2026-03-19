@@ -1,4 +1,4 @@
-grid_charge_forecast_threshold:
+﻿grid_charge_forecast_threshold:
   name: Grid Charge Forecast Threshold
   min: 0
   max: 30

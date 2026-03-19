@@ -1,4 +1,4 @@
-blueprint:
+﻿blueprint:
   name: "System: Enphase Gateway Connection Alert"
   description: >-
     Alerts when the Envoy Gateway drops offline or reconnects, protecting your energy data 
@@ -14,7 +14,7 @@ blueprint:
           device_class: battery
     cfg_notify_service:
       name: Notification Entity
-      default: notify.gmail
+      default: notify.notify
       selector:
         text:
 

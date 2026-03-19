@@ -1,4 +1,4 @@
-title: Energy & Export
+﻿title: Energy & Export
 views:
   - title: Smart Export Controller
     path: smart_export_controller
@@ -253,3 +253,4 @@ views:
           - entity: input_boolean.winter_mode
             icon: mdi:snowflake
         title: System Variables
+

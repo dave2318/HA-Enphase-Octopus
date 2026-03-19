@@ -1,4 +1,4 @@
-# Home Assistant Smart Energy Arbitrage (Octopus + Enphase + Solcast)
+﻿# Home Assistant Smart Energy Arbitrage (Octopus + Enphase + Solcast)
 
 This repository contains an advanced, highly automated energy management system for Home Assistant. It is designed to optimize battery storage by making dynamic export and grid-charging decisions based on live energy prices, solar forecasts, and historical house consumption.
 
@@ -10,7 +10,7 @@ It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (
 * **Predictive Grid Charging**: Calculates if it is mathematically profitable to charge the battery overnight from the grid, based on tomorrow's solar forecast and arbitrage margins.
 * **EV Charging Protection**: Hard blocks exporting when your car is charging on a cheap overnight rate.
 * **Dynamic Battery Health Tracking**: Automatically reads the true, live capacity of your Enphase battery to perfectly scale arbitrage math without needing manual slider adjustments.
-* **Daily ROI Audits**: Sends detailed daily emails breaking down your solar generation, peak avoidance savings, and net profit/loss.
+* **Daily ROI Audits**: Sends detailed daily notifications (via email or mobile app) breaking down your solar generation, peak avoidance savings, and net profit/loss.
 * **Failsafe Logic**: Safely suspends operations and alerts you if the Enphase Gateway drops offline to prevent data corruption.
 
 ## 📋 Prerequisites
@@ -79,7 +79,6 @@ Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text edi
 | `EnvoyMAC` | `YOUR_ENVOY_MAC` | Your Enphase Gateway MAC address. |
 | `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | Your Octopus Export MPAN. |
 | `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | Your Octopus Import MPAN. |
-| `OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | Found in your Intelligent Dispatching sensor name.. |
 
 ### Step 4: Import Blueprints & Create Automations
 The core logic of this system is powered by Home Assistant Blueprints. This means you do not need to manually edit YAML to configure the automations.
@@ -89,7 +88,11 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 3. In Home Assistant, navigate to **Developer Tools > YAML** and click **Reload Automations** (or **Reload Blueprints**).
 4. Go to **Settings > Automations & Blueprints > Blueprints**.
 5. Find the new Blueprints (e.g., "Energy: Smart Export Controller") and click **Create Automation**.
-6. A user interface will appear with dropdown menus. Select your specific Battery, Export, and Import sensors from the dropdowns, then click **Save**. 
+6. A user interface will appear with dropdown menus. Select your specific Battery, Export, and Import sensors from the dropdowns.
+7. **⚠️ Important Notification Setup:** In the **Notification Entity** text box, enter the ID of your preferred Home Assistant notifier. 
+   * For standard mobile push notifications, use: `notify.notify`
+   * If you have an email integration configured, use your custom entity (e.g., `notify.my_email`).
+8. Click **Save**. 
 
 *Repeat this process for the Grid Charge Controller, ROI Audit, and Gateway Connection Alert blueprints.*
 

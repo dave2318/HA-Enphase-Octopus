@@ -1,4 +1,4 @@
-blueprint:
+﻿blueprint:
   name: "Energy: Smart Export Controller"
   description: >-
     Dynamic battery export arbitrage based on Octopus Energy rates and Enphase/Solcast data.
@@ -38,8 +38,8 @@ blueprint:
           domain: switch
     cfg_notify_service:
       name: Notification Entity
-      description: The entity ID where you want to receive alerts (e.g., notify.gmail).
-      default: notify.gmail
+      description: The entity ID where you want to receive alerts (e.g., notify.notify).
+      default: notify.notify
       selector:
         text:
 

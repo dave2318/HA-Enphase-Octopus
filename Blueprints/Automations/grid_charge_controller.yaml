@@ -1,4 +1,4 @@
-blueprint:
+﻿blueprint:
   name: "Energy: Battery Grid Charge Controller"
   description: >-
     Manages CFG mode based on solar forecast and arbitrage profitability.
@@ -38,7 +38,7 @@ blueprint:
     cfg_notify_service:
       name: Notification Entity
       description: The entity ID where you want to receive audit alerts.
-      default: notify.gmail
+      default: notify.notify
       selector:
         text:
 

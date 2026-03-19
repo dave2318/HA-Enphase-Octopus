@@ -1,4 +1,4 @@
-# templates.yaml - Master Consolidated Version
+﻿# templates.yaml - Master Consolidated Version
 
 - sensor:
     - name: "Today Export Profit"
@@ -27,14 +27,14 @@
       icon: mdi:slope-downhill
       state: >
         {% if is_state('input_boolean.winter_mode', 'on') %}
-          {% set evening_req_kwh = 4.5 %} 
-          {% set reserve_floor = 30.0 %}
+          {% set evening_req_kwh = states('input_number.winter_evening_usage_kwh') | float(4.5) %} 
+          {% set reserve_floor = states('input_number.winter_reserve_floor') | float(30.0) %}
         {% else %}
-          {% set evening_req_kwh = 2.8 %} 
-          {% set reserve_floor = 20.0 %}
+          {% set evening_req_kwh = states('input_number.summer_evening_usage_kwh') | float(2.8) %} 
+          {% set reserve_floor = states('input_number.summer_reserve_floor') | float(20.0) %}
         {% endif %}
         {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
-        {% set rte = 0.83 %}
+        {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
         {% set solar_remaining = states('sensor.combined_solar_forecast_remaining') | float(0) %}
         {% set gap = (evening_req_kwh - solar_remaining) %}
         {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
@@ -85,7 +85,7 @@
         {% set capacity = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) / 100 %}
         {% set reserve = 0.06 %}
-        {% set rte = 0.83 %}
+        {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
         {% set avg_load = states('sensor.average_house_load_24h') | float(0) %}
         {% if soc > reserve and avg_load > 0.1 %}
           {{ ((soc - reserve) * capacity * rte / avg_load) | round(1) }}

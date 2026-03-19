@@ -199,9 +199,19 @@
       state: >
         {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(99) %}
         {% set import_rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
+        
+        {# Dynamically find the lowest rate of the day and add 0.5p leeway #}
+        {% set rates = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_current_day_rates', 'rates') or [] %}
+        {% if rates | length > 0 %}
+          {% set min_rate_pounds = rates | map(attribute='value_inc_vat') | min | float(0.07) %}
+          {% set dynamic_threshold = (min_rate_pounds * 100) + 0.5 %}
+        {% else %}
+          {% set dynamic_threshold = 7.5 %} {# Failsafe if the event sensor is empty #}
+        {% endif %}
+
         {{ is_state('binary_sensor.octopus_energy_OctopusAccountId_intelligent_dispatching', 'on') 
            or is_state('binary_sensor.in_cheap_import_window', 'on') 
-           or import_rate <= 7.5 }}
+           or import_rate <= dynamic_threshold }}
 
     - name: "Enphase Gateway Status"
       unique_id: enphase_gateway_status_binary

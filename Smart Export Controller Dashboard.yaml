@@ -10,11 +10,7 @@ views:
             entity: sensor.grid_net_power_kw
             display_state: both
             secondary_info:
-              entity: sensor.grid_energy_import_today
-              unit_of_measurement: kWh
-            export:
-              entity: sensor.grid_energy_export_today
-              unit_of_measurement: kWh
+              entity: sensor.grid_daily_in_out
           solar:
             entity: sensor.solar_production_clean_kw
             display_state: both
@@ -248,7 +244,6 @@ views:
             hours_to_show: 48
       - type: entities
         entities:
-          - entity: input_number.battery_capacity_kwh
           - entity: input_number.grid_charge_forecast_threshold
           - entity: input_number.battery_efficiency_rte
           - entity: input_number.winter_evening_usage_kwh

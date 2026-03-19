@@ -119,14 +119,18 @@
       unit_of_measurement: "kW"
       device_class: power
       state: >
-        {% set forecast = state_attr('sensor.solcast_pv_forecast_forecast_today', 'detailed_forecast') %}
-        {% set current_time = now().replace(minute=0, second=0, microsecond=0) %}
+        {% set forecast = state_attr('sensor.solcast_pv_forecast_forecast_today', 'detailedForecast') %}
         {% if forecast is not none %}
+          {% set current = now() %}
+          {% set ns = namespace(val=0.0) %}
           {% for slot in forecast %}
-            {% if as_datetime(slot.period_start) == current_time %}
-              {{ slot.pv_estimate | float(0) | round(2) }}
+            {% set start = as_datetime(slot.period_start) | as_local %}
+            {% set end = start + timedelta(minutes=30) %}
+            {% if current >= start and current < end %}
+              {% set ns.val = slot.pv_estimate | float(0) %}
             {% endif %}
           {% endfor %}
+          {{ ns.val | round(2) }}
         {% else %}
           0.0
         {% endif %}
@@ -195,7 +199,7 @@
       state: >
         {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(99) %}
         {% set import_rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
-        {{ is_state('binary_sensor.octopus_energy_00000000_0002_4000_8020_0000000ee0ee_intelligent_dispatching', 'on') 
+        {{ is_state('binary_sensor.octopus_energy_OctopusAccountId_intelligent_dispatching', 'on') 
            or is_state('binary_sensor.in_cheap_import_window', 'on') 
            or import_rate <= 7.5 }}
 
@@ -282,7 +286,7 @@
             {% if exported_now > 0 %}
               {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
               {% set rate = ((raw_rate * 100) if raw_rate < 1.0 else raw_rate) / 100 %}
-              {{ (current_profit + (exported_now * rate)) | round(2) }}
+              {{ (current_profit + (exported_now * rate)) | round(4) }}
             {% else %} 
               {{ current_profit }} 
             {% endif %}

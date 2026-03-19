@@ -9,6 +9,7 @@ It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (
 * **Winter / Summer Modes**: Dynamically adjusts battery reserve floors and evening consumption estimates based on the season.
 * **Predictive Grid Charging**: Calculates if it is mathematically profitable to charge the battery overnight from the grid, based on tomorrow's solar forecast and arbitrage margins.
 * **EV Charging Protection**: Hard blocks exporting when your car is charging on a cheap overnight rate.
+* **Dynamic Battery Health Tracking**: Automatically reads the true, live capacity of your Enphase battery to perfectly scale arbitrage math without needing manual slider adjustments.
 * **Daily ROI Audits**: Sends detailed daily emails breaking down your solar generation, peak avoidance savings, and net profit/loss.
 * **Failsafe Logic**: Safely suspends operations and alerts you if the Enphase Gateway drops offline to prevent data corruption.
 
@@ -21,7 +22,7 @@ To use this setup, you must have the following custom integrations installed in 
 
 ## ⚙️ Installation & Setup
 
-Because Home Assistant requires hardcoded entity IDs for some integrations and dashboards, you must replace my system's specific hardware IDs with your own for the templates and dashboard. However, the automations are provided as easy-to-use **Blueprints**!
+Because Home Assistant requires hardcoded entity IDs for some integrations and dashboards, you must replace my system's specific hardware IDs with your own for the templates and dashboard. However, the core automations are provided as easy-to-use **Blueprints**!
 
 ### Step 1: Add the System Variables
 Add the following into your `configuration.yaml`, replacing `EnvoyMAC` with `YOUR_ENVOY_MAC`:
@@ -44,7 +45,7 @@ utility_meter:
     cycle: daily
 
   solar_production_daily:
-    source: sensor.envoy_482425023283_lifetime_energy_production
+    source: sensor.envoy_EnvoyMAC_lifetime_energy_production
     name: "Daily Solar Production"
     cycle: daily    
 
@@ -59,7 +60,18 @@ sensor:
 
 Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.
 
-### Step 2: Configure Templates & Dashboard
+### Step 2: Create the Dashboard UI Helper
+To ensure the custom Power Flow Dashboard card renders perfectly without errors, you need to create a quick UI Helper for the Grid metrics.
+1. Go to **Settings > Devices & Services > Helpers**.
+2. Click **+ Create Helper** and select **Template > Template a sensor**.
+3. Name it: `Grid Daily In Out`
+4. Paste this exact code into the **State template** box:
+```jinja2
+⬇ {{ states('sensor.grid_energy_import_today') | float(0) | round(1) }} | ⬆ {{ states('sensor.grid_energy_export_today') | float(0) | round(1) }} kWh
+```
+5. Leave all other fields blank and click **Submit**.
+
+### Step 3: Configure Templates & Dashboard
 Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text editor. Use **Find and Replace** to swap the following strings with your actual entity IDs:
 
 | Find (My System) | Replace With (Your System) | What it is |
@@ -67,8 +79,9 @@ Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text edi
 | `EnvoyMAC` | `YOUR_ENVOY_MAC` | Your Enphase Gateway MAC address. |
 | `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | Your Octopus Export MPAN. |
 | `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | Your Octopus Import MPAN. |
+| `OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | Found in your Intelligent Dispatching sensor name.. |
 
-### Step 3: Import Blueprints & Create Automations
+### Step 4: Import Blueprints & Create Automations
 The core logic of this system is powered by Home Assistant Blueprints. This means you do not need to manually edit YAML to configure the automations.
 
 1. Download the `.yaml` files from the `/blueprints` folder of this repository.
@@ -82,9 +95,8 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 
 ## 🎛️ Understanding the UI Variables
 
-Once installed, you will have several sliders in your Home Assistant UI. Here is what they control:
+Once installed, you will have several sliders in your Home Assistant UI. *(Note: Battery Capacity is intentionally missing from this list, as the system automatically reads real-time battery degradation and capacity via the Enphase integration!)* Here is what the available sliders control:
 
-* **System Battery Capacity**: Your total usable battery storage in kWh (e.g., 5.0).
 * **Battery Round Trip Efficiency (RTE)**: The percentage of energy retained during a full charge/discharge cycle (usually ~0.83 or 83% for Enphase). Used to calculate true arbitrage profitability.
 * **Grid Charge Forecast Threshold**: If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge.
 * **Minimum SOC Floor (Winter/Summer)**: The absolute lowest percentage the battery is allowed to reach during a forced export.

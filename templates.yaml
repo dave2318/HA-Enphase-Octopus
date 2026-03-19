@@ -33,7 +33,7 @@
           {% set evening_req_kwh = 2.8 %} 
           {% set reserve_floor = 20.0 %}
         {% endif %}
-        {% set battery_cap_kwh = 5.0 %}
+        {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set rte = 0.83 %}
         {% set solar_remaining = states('sensor.combined_solar_forecast_remaining') | float(0) %}
         {% set gap = (evening_req_kwh - solar_remaining) %}
@@ -82,7 +82,7 @@
       unit_of_measurement: "h"
       icon: mdi:timer-sand
       state: >
-        {% set capacity = 5.0 %}
+        {% set capacity = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) / 100 %}
         {% set reserve = 0.06 %}
         {% set rte = 0.83 %}
@@ -334,4 +334,3 @@
       unique_id: yesterday_battery_discharge_total
       unit_of_measurement: "kWh"
       state: "{{ states('sensor.calculated_battery_daily_discharge') }}"
-      

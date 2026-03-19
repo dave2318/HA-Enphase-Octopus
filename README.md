@@ -32,21 +32,25 @@ utility_meter:
   daily_battery_discharged:
     source: sensor.envoy_EnvoyMAC_lifetime_battery_energy_discharged
     name: "Daily Battery Energy Discharged"
+    unique_id: um_daily_battery_discharged
     cycle: daily
 
   grid_energy_import_today:
     source: sensor.envoy_EnvoyMAC_lifetime_net_energy_consumption
     name: "Grid Energy Import Today"
+    unique_id: um_grid_energy_import_today
     cycle: daily
 
   grid_energy_export_today:
     source: sensor.envoy_EnvoyMAC_lifetime_net_energy_production
     name: "Grid Energy Export Today"
+    unique_id: um_grid_energy_export_today
     cycle: daily
 
   solar_production_daily:
     source: sensor.envoy_EnvoyMAC_lifetime_energy_production
     name: "Daily Solar Production"
+    unique_id: um_solar_production_daily
     cycle: daily    
 
 sensor:
@@ -60,16 +64,23 @@ sensor:
 
 Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.
 
-### Step 2: Create the Dashboard UI Helper
-To ensure the custom Power Flow Dashboard card renders perfectly without errors, you need to create a quick UI Helper for the Grid metrics.
-1. Go to **Settings > Devices & Services > Helpers**.
-2. Click **+ Create Helper** and select **Template > Template a sensor**.
-3. Name it: `Grid Daily In Out`
-4. Paste this exact code into the **State template** box:
+### Step 2: Create the Dashboard UI Helpers
+To ensure the custom dashboard renders perfectly and the seasonal logic works, you need to create two quick UI Helpers.
+Go to **Settings > Devices & Services > Helpers** and click **+ Create Helper**.
+
+**1. The Winter Mode Toggle**
+* Select **Toggle**
+* Name it: `Winter Mode`
+* *(This creates `input_boolean.winter_mode`, which the system uses to dynamically switch between your summer and winter battery reserve floors).*
+
+**2. The Grid Flow Sensor**
+* Select **Template > Template a sensor**
+* Name it: `Grid Daily In Out`
+* Paste this exact code into the **State template** box:
 ```jinja2
 ⬇ {{ states('sensor.grid_energy_import_today') | float(0) | round(1) }} | ⬆ {{ states('sensor.grid_energy_export_today') | float(0) | round(1) }} kWh
 ```
-5. Leave all other fields blank and click **Submit**.
+* Leave all other fields blank and click **Submit**.
 
 ### Step 3: Configure Templates & Dashboard
 Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text editor. Use **Find and Replace** to swap the following strings with your actual entity IDs:
@@ -79,6 +90,7 @@ Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text edi
 | `EnvoyMAC` | `YOUR_ENVOY_MAC` | Your Enphase Gateway MAC address. |
 | `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | Your Octopus Export MPAN. |
 | `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | Your Octopus Import MPAN. |
+| `OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | Found in your Intelligent Dispatching sensor name. |
 
 ### Step 4: Import Blueprints & Create Automations
 The core logic of this system is powered by Home Assistant Blueprints. This means you do not need to manually edit YAML to configure the automations.

@@ -19,7 +19,8 @@
         {% set raw_imp = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(0) %}
         {% set export = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
         {% set import = (raw_imp * 100) if raw_imp < 1.0 else raw_imp %}
-        {{ (export - (import / 0.83)) | round(2) }}
+        {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
+        {{ (export - (import / rte)) | round(2) }}
 
     - name: "Battery Export Floor"
       unique_id: battery_export_floor
@@ -156,7 +157,8 @@
             {% if (r.value_inc_vat * 100) > ns.max_export %}{% set ns.max_export = (r.value_inc_vat * 100) %}{% endif %}
         {% endfor %}
         {% set avg_import = (ns.charge_rates | sum / ns.charge_rates | length) if ns.charge_rates | length > 0 else 999.0 %}
-        {{ forecast_low or ns.max_export > (avg_import / 0.83) }}
+        {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
+        {{ forecast_low or ns.max_export > (avg_import / rte) }}
 
     - name: "Export Profitable"
       unique_id: export_profitable

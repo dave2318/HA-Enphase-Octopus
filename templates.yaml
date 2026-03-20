@@ -1,4 +1,4 @@
-﻿# templates.yaml - Master Consolidated Version
+﻿# templates.yaml - Master Consolidated Version (V3.0 Predictive)
 
 - sensor:
     - name: "Today Export Profit"
@@ -27,13 +27,18 @@
       unit_of_measurement: "%"
       icon: mdi:slope-downhill
       state: >
+        {% set avg_usage = states('sensor.average_evening_usage_7d') | float(0) %}
         {% if is_state('input_boolean.winter_mode', 'on') %}
-          {% set evening_req_kwh = states('input_number.winter_evening_usage_kwh') | float(4.5) %} 
           {% set reserve_floor = states('input_number.winter_reserve_floor') | float(30.0) %}
+          {% set fallback_usage = states('input_number.winter_evening_usage_kwh') | float(4.5) %}
         {% else %}
-          {% set evening_req_kwh = states('input_number.summer_evening_usage_kwh') | float(2.8) %} 
           {% set reserve_floor = states('input_number.summer_reserve_floor') | float(20.0) %}
+          {% set fallback_usage = states('input_number.summer_evening_usage_kwh') | float(2.8) %}
         {% endif %}
+        
+        {# Use the 7-day AI average. If it's 0 (learning phase), use the manual UI sliders #}
+        {% set evening_req_kwh = avg_usage if avg_usage > 0 else fallback_usage %} 
+        
         {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
         {% set solar_remaining = states('sensor.combined_solar_forecast_remaining') | float(0) %}
@@ -202,13 +207,12 @@
         {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(99) %}
         {% set import_rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
         
-        {# Dynamically find the lowest rate of the day and add 0.5p leeway #}
         {% set rates = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_current_day_rates', 'rates') or [] %}
         {% if rates | length > 0 %}
           {% set min_rate_pounds = rates | map(attribute='value_inc_vat') | min | float(0.07) %}
           {% set dynamic_threshold = (min_rate_pounds * 100) + 0.5 %}
         {% else %}
-          {% set dynamic_threshold = 7.5 %} {# Failsafe if the event sensor is empty #}
+          {% set dynamic_threshold = 7.5 %}
         {% endif %}
 
         {{ is_state('binary_sensor.octopus_energy_OctopusAccountId_intelligent_dispatching', 'on') 
@@ -336,3 +340,36 @@
       unique_id: yesterday_battery_discharge_total
       unit_of_measurement: "kWh"
       state: "{{ states('sensor.calculated_battery_daily_discharge') }}"
+
+# --- V3.0 Predictive Evening Trackers ---
+- trigger:
+    - platform: time
+      at: "16:30:00"
+      id: "start"
+    - platform: time
+      at: "23:30:00"
+      id: "end"
+  sensor:
+    - name: "Evening Consumption Baseline"
+      unique_id: evening_consumption_baseline_tracker
+      unit_of_measurement: "kWh"
+      state: >
+        {% if trigger.id == 'start' %}
+          {{ states('sensor.envoy_EnvoyMAC_energy_consumption_today') | float(0) }}
+        {% else %}
+          {{ this.state | default(0) }}
+        {% endif %}
+        
+    - name: "Last Evening Usage"
+      unique_id: last_evening_usage_tracker
+      unit_of_measurement: "kWh"
+      icon: mdi:home-lightning-bolt
+      state: >
+        {% if trigger.id == 'end' %}
+          {% set current = states('sensor.envoy_EnvoyMAC_energy_consumption_today') | float(0) %}
+          {% set start_val = states('sensor.evening_consumption_baseline') | float(current) %}
+          {% set diff = current - start_val %}
+          {{ diff | round(2) if diff > 0 else this.state | default(0) }}
+        {% else %}
+          {{ this.state | default(0) }}
+        {% endif %}

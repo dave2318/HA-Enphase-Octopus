@@ -6,7 +6,8 @@ It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (
 
 ## ✨ Key Features
 * **Smart Peak Export**: Automatically exports battery power to the grid during the most profitable slots (e.g., 16:30-19:00) while ensuring enough reserve is kept to power your home through the evening.
-* **Winter / Summer Modes**: Dynamically adjusts battery reserve floors and evening consumption estimates based on the season.
+* **Predictive Evening Reserve**: Learns your actual household consumption over a 7-day rolling average to dynamically calculate exactly how much battery to hold back for the evening, automatically falling back to manual estimates if data is unavailable.
+* **Winter / Summer Modes**: Dynamically adjusts battery reserve floors based on the season.
 * **Predictive Grid Charging**: Calculates if it is mathematically profitable to charge the battery overnight from the grid, based on tomorrow's solar forecast and arbitrage margins.
 * **EV Charging Protection**: Hard blocks exporting when your car is charging on a cheap overnight rate.
 * **Dynamic Battery Health Tracking**: Automatically reads the true, live capacity of your Enphase battery to perfectly scale arbitrage math without needing manual slider adjustments.
@@ -60,6 +61,14 @@ sensor:
     state_characteristic: mean
     max_age:
       hours: 24
+
+  - platform: statistics
+    name: "Average Evening Usage 7d"
+    unique_id: stat_avg_evening_usage_7d
+    entity_id: sensor.last_evening_usage
+    state_characteristic: mean
+    max_age:
+      days: 7
 ```
 
 Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.
@@ -114,5 +123,5 @@ Once installed, you will have several sliders in your Home Assistant UI. *(Note:
 
 * **Battery Round Trip Efficiency (RTE)**: The percentage of energy retained during a full charge/discharge cycle (usually ~0.83 or 83% for Enphase). Used to calculate true arbitrage profitability.
 * **Grid Charge Forecast Threshold**: If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge.
-* **Minimum SOC Floor (Winter/Summer)**: The absolute lowest percentage the battery is allowed to reach during a forced export.
-* **Evening Usage Estimate (Winter/Summer)**: How much power your house typically uses between 16:30 and 23:30. The system uses this to dynamically hold back enough battery power so you don't export everything and end up importing at peak rates later.
+* **Minimum SOC Floor (Winter/Summer)**: The absolute lowest percentage the battery is allowed to reach during a forced export. This is your permanent safety net.
+* **Evening Usage Estimate (Winter/Summer)**: Acts as a failsafe/fallback training wheel. The system natively uses a 7-day rolling machine-learning average of your actual house consumption between 16:30 and 23:30 to dictate its export limits, but will fall back to these manual sliders if that historical data is ever unavailable (e.g., after a fresh install).

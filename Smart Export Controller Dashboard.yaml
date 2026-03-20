@@ -172,6 +172,8 @@ views:
             name: Today's Golden Export Slot
           - entity: sensor.envoy_EnvoyMAC_energy_production_today
             name: Generated Today
+          - entity: sensor.average_evening_usage_7d
+            name: 7-Day Average Evening Usage (Learned)
           - entity: sensor.combined_solar_forecast_remaining
             name: Solar Left Today
           - entity: sensor.combined_solar_forecast_today

@@ -108,13 +108,19 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 3. In Home Assistant, navigate to **Developer Tools > YAML** and click **Reload Automations** (or **Reload Blueprints**).
 4. Go to **Settings > Automations & Blueprints > Blueprints**.
 5. Find the new Blueprints (e.g., "Energy: Smart Export Controller") and click **Create Automation**.
-6. A user interface will appear with dropdown menus. Select your specific Battery, Export, and Import sensors from the dropdowns.
+6. A user interface will appear with dropdown menus. Here are examples of what your entity names will generally look like when searching the dropdowns:
+   * **Battery SOC Sensor:** `sensor.envoy_YOURMAC_battery`
+   * **Octopus Export / Import Rates:** `sensor.octopus_energy_electricity_..._current_rate`
+   * **Octopus Day Rates (Events):** `event.octopus_energy_electricity_..._current_day_rates`
+   * **Battery Export Switch (DTG):** `switch.enphase_dtg_mode` 
+   * **Battery Grid Charge Switch (CFG):** `switch.enphase_cfg_mode`
+   * **Greener Nights Calendar:** `calendar.octopus_energy_..._greener_nights`
 7. **⚠️ Important Notification Setup:** In the **Notification Entity** text box, enter the ID of your preferred Home Assistant notifier. 
    * For standard mobile push notifications, use: `notify.notify`
    * If you have an email integration configured, use your custom entity (e.g., `notify.my_email`).
 8. Click **Save**. 
 
-*Repeat this process for the Grid Charge Controller, ROI Audit, and Gateway Connection Alert blueprints.*
+*Repeat this process for the Grid Charge Controller, ROI Audit, Gateway Connection Alert, and Greener Night blueprints.*
 
 ## 🧠 Understanding the Export Logic (Daytime Shield vs. Peak Dump)
 This system uses a dual-target strategy to ensure you never accidentally drain your battery before the expensive evening peak.

@@ -75,16 +75,29 @@ views:
         title: Next Expected Behaviour
         content: >
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-          {% set floor = states('sensor.battery_export_floor') | float(0) %} {%
-          set reserve = states('sensor.dynamic_reserve') | float(0) %} {% set
-          winter = is_state('input_boolean.winter_mode', 'on') %} {% set
-          is_profitable = states('sensor.export_profitability') | float(0) > 0
-          %} {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
-          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  {%
-          set smart_peak = is_state('binary_sensor.smart_peak_export_active',
+
+          {% set floor = states('sensor.battery_export_floor') | float(0) %} 
+
+          {% set reserve = states('sensor.dynamic_reserve') | float(0) %} 
+
+          {% set winter = is_state('input_boolean.winter_mode', 'on') %} 
+
+          {% set holiday = is_state('input_boolean.holiday_mode', 'on') %} 
+
+          {% set is_profitable = states('sensor.export_profitability') |
+          float(0) > 0 %} 
+
+          {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+
+          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  
+
+          {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
           'on') %}
 
-          **Current Strategy:** {% if car %}
+
+          **Current Strategy:** {% if holiday %}
+            ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
+          {% elif car %}
             🚗 **BLOCK:** EV is charging or in cheap window.
           {% elif winter and is_profitable and soc < floor %}
             ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter floor ({{floor}}%).
@@ -97,25 +110,44 @@ views:
           {% endif %}
       - type: markdown
         title: 🚦 Export Logic Checklist
-        content: >
+        content: >-
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-          {% set floor = states('sensor.battery_export_floor') | float(0) %} {%
-          set profit_val = states('sensor.export_profitability') | float(0) %}
-          {% set winter = is_state('input_boolean.winter_mode', 'on') %} {% set
-          car = is_state('binary_sensor.hard_block_active', 'on') %} {% set peak
-          = is_state('binary_sensor.in_peak_window', 'on') %}  {% set smart_peak
-          = is_state('binary_sensor.smart_peak_export_active', 'on') %}
 
-          **Blocks** - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} -
-          Winter Safety Check {{ '✅' if not winter or (winter and soc > floor)
-          or smart_peak else '⚠️' }}
+          {% set floor = states('sensor.battery_export_floor') | float(0) %} 
+
+          {% set profit_val = states('sensor.export_profitability') | float(0)
+          %}
+
+          {% set winter = is_state('input_boolean.winter_mode', 'on') %} 
+
+          {% set holiday = is_state('input_boolean.holiday_mode', 'on') %} 
+
+          {% set car = is_state('binary_sensor.hard_block_active', 'on') %} 
+
+          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  
+
+          {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
+          'on') %}
+
+
+          **Blocks** - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} 
+
+          - Winter Safety Check {{ '✅' if not winter or holiday or (winter and
+          soc > floor) or smart_peak else '⚠️' }}
+
 
           **Triggers** - Profit Opportunity ({{ profit_val }}p) {{ '✅' if
-          profit_val > 0 else '❌' }} - Smart Peak Surplus {{ '✅' if smart_peak
-          else '❌' }}
+          profit_val > 0 else '❌' }} 
 
-          --- **System Verdict:** {% if car %}
+          - Smart Peak Surplus {{ '✅' if smart_peak else '❌' }}
+
+
+          --- 
+
+          **System Verdict:** {% if car %}
             🛑 BLOCKED (EV/CHEAP)
+          {% elif holiday and profit_val > 0 %}
+            ✈️ HOLIDAY EXPORT
           {% elif winter and profit_val > 0 and soc < floor and not smart_peak
           %}
             ❄️ WINTER PROTECT
@@ -254,5 +286,8 @@ views:
           - entity: input_number.summer_reserve_floor
           - entity: input_boolean.winter_mode
             icon: mdi:snowflake
+          - entity: input_boolean.holiday_mode
+          - entity: input_number.holiday_evening_usage_kwh
+          - entity: input_number.holiday_reserve_floor
         title: System Variables
 

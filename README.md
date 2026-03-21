@@ -7,6 +7,7 @@ It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (
 ## ✨ Key Features
 * **Smart Peak Export**: Automatically exports battery power to the grid during the most profitable slots (e.g., 16:30-19:00) while ensuring enough reserve is kept to power your home through the evening.
 * **Predictive Evening Reserve**: Learns your actual household consumption over a 7-day rolling average to dynamically calculate exactly how much battery to hold back for the evening, automatically falling back to manual estimates if data is unavailable.
+* **Holiday Mode**: Maximizes export profits while you are away by dropping the reserve floor, and automatically freezes the 7-day predictive AI from learning your artificially low vacation usage.
 * **Winter / Summer Modes**: Dynamically adjusts battery reserve floors based on the season.
 * **Predictive Grid Charging**: Calculates if it is mathematically profitable to charge the battery overnight from the grid, based on tomorrow's solar forecast and arbitrage margins.
 * **EV Charging Protection**: Hard blocks exporting when your car is charging on a cheap overnight rate.
@@ -61,13 +62,12 @@ sensor:
     state_characteristic: mean
     max_age:
       hours: 24
-
 ```
 
 Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.
 
 ### Step 2: Create the Dashboard UI Helpers
-To ensure the custom dashboard renders perfectly and the seasonal logic works, you need to create two quick UI Helpers.
+To ensure the custom dashboard renders perfectly and the seasonal logic works, you need to create three quick UI Helpers.
 Go to **Settings > Devices & Services > Helpers** and click **+ Create Helper**.
 
 **1. The Winter Mode Toggle**
@@ -75,7 +75,12 @@ Go to **Settings > Devices & Services > Helpers** and click **+ Create Helper**.
 * Name it: `Winter Mode`
 * *(This creates `input_boolean.winter_mode`, which the system uses to dynamically switch between your summer and winter battery reserve floors).*
 
-**2. The Grid Flow Sensor**
+**2. The Holiday Mode Toggle**
+* Select **Toggle**
+* Name it: `Holiday Mode`
+* *(This creates `input_boolean.holiday_mode`, which freezes AI tracking and maximizes grid exports while you are away).*
+
+**3. The Grid Flow Sensor**
 * Select **Template > Template a sensor**
 * Name it: `Grid Daily In Out`
 * Paste this exact code into the **State template** box:
@@ -118,3 +123,5 @@ Once installed, you will have several sliders in your Home Assistant UI. *(Note:
 * **Grid Charge Forecast Threshold**: If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge.
 * **Minimum SOC Floor (Winter/Summer)**: The absolute lowest percentage the battery is allowed to reach during a forced export. This is your permanent safety net.
 * **Evening Usage Estimate (Winter/Summer)**: Acts as a failsafe/fallback training wheel. The system natively uses a 7-day rolling machine-learning average of your actual house consumption between 16:30 and 23:30 to dictate its export limits, but will fall back to these manual sliders if that historical data is ever unavailable (e.g., after a fresh install).
+* **Evening Usage Estimate (Holiday)**: The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
+* **Minimum SOC Floor (Holiday)**: The lowest battery percentage allowed while on vacation. Usually set very low (e.g., 10%) to safely maximize your export profits while you are away.

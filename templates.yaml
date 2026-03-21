@@ -28,16 +28,22 @@
       icon: mdi:slope-downhill
       state: >
         {% set avg_usage = states('sensor.average_evening_usage_7d') | float(0) %}
-        {% if is_state('input_boolean.winter_mode', 'on') %}
-          {% set reserve_floor = states('input_number.winter_reserve_floor') | float(30.0) %}
-          {% set fallback_usage = states('input_number.winter_evening_usage_kwh') | float(4.5) %}
-        {% else %}
-          {% set reserve_floor = states('input_number.summer_reserve_floor') | float(20.0) %}
-          {% set fallback_usage = states('input_number.summer_evening_usage_kwh') | float(2.8) %}
-        {% endif %}
+        {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
         
-        {# Use the 7-day AI average. If it's suspiciously low (learning phase), use the manual UI sliders #}
-        {% set evening_req_kwh = avg_usage if avg_usage > (fallback_usage * 0.6) else fallback_usage %} 
+        {% if is_holiday %}
+          {% set reserve_floor = states('input_number.holiday_reserve_floor') | float(10.0) %}
+          {% set evening_req_kwh = states('input_number.holiday_evening_usage_kwh') | float(0.5) %}
+        {% else %}
+          {% if is_state('input_boolean.winter_mode', 'on') %}
+            {% set reserve_floor = states('input_number.winter_reserve_floor') | float(30.0) %}
+            {% set fallback_usage = states('input_number.winter_evening_usage_kwh') | float(4.5) %}
+          {% else %}
+            {% set reserve_floor = states('input_number.summer_reserve_floor') | float(20.0) %}
+            {% set fallback_usage = states('input_number.summer_evening_usage_kwh') | float(2.8) %}
+          {% endif %}
+          {# Use the 7-day AI average. If it's suspiciously low, use the manual UI sliders #}
+          {% set evening_req_kwh = avg_usage if avg_usage > (fallback_usage * 0.6) else fallback_usage %} 
+        {% endif %}
         
         {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
@@ -45,7 +51,7 @@
         {% set gap = (evening_req_kwh - solar_remaining) %}
         {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
         {{ [reserve_floor, [needed_soc, 95]|min]|max | round(0) }}
-
+        
     - name: "Dynamic Reserve"
       unique_id: dynamic_reserve_calc
       unit_of_measurement: "%"
@@ -378,9 +384,10 @@
             {% set current = raw_current | float(0) %}
             {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
             {% set diff = current - start_val %}
+            {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
             
-            {# Sanity check: Start must be > 0, Diff must be > 0, and Diff must be realistic (< 20 kWh) #}
-            {% if diff > 0 and start_val > 0 and diff < 20 %}
+            {# Sanity check PLUS Holiday Freeze: Do not log new data if on holiday! #}
+            {% if diff > 0 and start_val > 0 and diff < 20 and not is_holiday %}
               {{ diff | round(2) }}
             {% else %}
               {{ this.state | default(0) }}
@@ -400,9 +407,10 @@
               {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
               {% set diff = (current - start_val) | round(2) %}
               {% set hist = this.attributes.history_array | default([]) %}
+              {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
               
-              {# Only append to array if it passes the exact same sanity checks #}
-              {% if diff > 0 and start_val > 0 and diff < 20 %}
+              {# Only append to array if it passes sanity checks AND we are not on holiday #}
+              {% if diff > 0 and start_val > 0 and diff < 20 and not is_holiday %}
                 {{ (hist + [diff])[-7:] }}
               {% else %}
                 {{ hist }}

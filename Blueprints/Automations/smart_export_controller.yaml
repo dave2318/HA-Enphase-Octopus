@@ -148,6 +148,7 @@ variables:
   export_rate_val: "{{ states(cfg_sensor_export_rate) | float(0) }}"
   import_rate_val: "{{ states(cfg_sensor_import_rate) | float(0) }}"
   is_winter: "{{ is_state('input_boolean.winter_mode', 'on') }}"
+  is_holiday: "{{ is_state('input_boolean.holiday_mode', 'on') }}"
   is_profitable: "{{ states('sensor.export_profitability') | float(0) > 0 }}"
   is_cheap: "{{ is_state('binary_sensor.in_cheap_import_window', 'on') }}"
   is_peak: "{{ is_state('binary_sensor.in_peak_window', 'on') }}"
@@ -155,18 +156,12 @@ variables:
   is_smart_peak: "{{ is_state('binary_sensor.smart_peak_export_active', 'on') }}"
   
   should_export_goal: >-
-    {% set blocked = is_cheap or car_charging %}  {% set profit_ok =
-    is_profitable and (not is_winter or soc_val > export_floor_val) %}  {{ not
-    blocked and (profit_ok or is_smart_peak) }}
+    {% set blocked = is_cheap or car_charging %}  
+    {% set profit_ok = is_profitable and (is_holiday or not is_winter or soc_val > export_floor_val) %}  
+    {{ not blocked and (profit_ok or is_smart_peak) }}
   
   stop_reason_short: >-
-    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif soc_val <
-    reserve_val %}Reserve{% else %}Idle{% endif %}
+    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif soc_val < reserve_val %}Reserve{% else %}Idle{% endif %}
   
   stop_reason_long: >-
-    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid
-    import rates are in the cheap window.{% elif soc_val < reserve_val and not
-    is_peak %}SOC ({{ soc_val }}%) is below reserve ({{ reserve_val }}%).{% elif
-    is_winter and soc_val < export_floor_val and not is_smart_peak %}Winter Mode
-    safety: SOC ({{ soc_val }}%) is below floor ({{ export_floor_val }}%).{%
-    else %}Export is no longer profitable.{% endif %}
+    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid import rates are in the cheap window.{% elif soc_val < reserve_val and not is_peak %}SOC ({{ soc_val }}%) is below reserve ({{ reserve_val }}%).{% elif is_winter and not is_holiday and soc_val < export_floor_val and not is_smart_peak %}Winter Mode safety: SOC ({{ soc_val }}%) is below floor ({{ export_floor_val }}%).{% else %}Export is no longer profitable.{% endif %}

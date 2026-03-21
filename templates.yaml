@@ -36,8 +36,8 @@
           {% set fallback_usage = states('input_number.summer_evening_usage_kwh') | float(2.8) %}
         {% endif %}
         
-        {# Use the 7-day AI average. If it's 0 (learning phase), use the manual UI sliders #}
-        {% set evening_req_kwh = avg_usage if avg_usage > 0 else fallback_usage %} 
+        {# Use the 7-day AI average. If it's suspiciously low (learning phase), use the manual UI sliders #}
+        {% set evening_req_kwh = avg_usage if avg_usage > (fallback_usage * 0.6) else fallback_usage %} 
         
         {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
@@ -341,7 +341,7 @@
       unit_of_measurement: "kWh"
       state: "{{ states('sensor.calculated_battery_daily_discharge') }}"
 
-# --- V3.0 Predictive Evening Trackers ---
+# --- V3.1 Predictive Evening Trackers (Array-Based & Outage-Proof) ---
 - trigger:
     - platform: time
       at: "16:30:00"
@@ -355,7 +355,12 @@
       unit_of_measurement: "kWh"
       state: >
         {% if trigger.id == 'start' %}
-          {{ states('sensor.envoy_EnvoyMAC_energy_consumption_today') | float(0) }}
+          {% set state = states('sensor.envoy_EnvoyMAC_energy_consumption_today') %}
+          {% if state in ['unknown', 'unavailable'] %}
+            {{ this.state | default(0) }}
+          {% else %}
+            {{ state | float(0) }}
+          {% endif %}
         {% else %}
           {{ this.state | default(0) }}
         {% endif %}
@@ -366,10 +371,57 @@
       icon: mdi:home-lightning-bolt
       state: >
         {% if trigger.id == 'end' %}
-          {% set current = states('sensor.envoy_EnvoyMAC_energy_consumption_today') | float(0) %}
-          {% set start_val = states('sensor.evening_consumption_baseline') | float(current) %}
-          {% set diff = current - start_val %}
-          {{ diff | round(2) if diff > 0 else this.state | default(0) }}
+          {% set raw_current = states('sensor.envoy_EnvoyMAC_energy_consumption_today') %}
+          {% if raw_current in ['unknown', 'unavailable'] %}
+            {{ this.state | default(0) }}
+          {% else %}
+            {% set current = raw_current | float(0) %}
+            {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
+            {% set diff = current - start_val %}
+            
+            {# Sanity check: Start must be > 0, Diff must be > 0, and Diff must be realistic (< 20 kWh) #}
+            {% if diff > 0 and start_val > 0 and diff < 20 %}
+              {{ diff | round(2) }}
+            {% else %}
+              {{ this.state | default(0) }}
+            {% endif %}
+          {% endif %}
         {% else %}
           {{ this.state | default(0) }}
+        {% endif %}
+      attributes:
+        history_array: >
+          {% if trigger.id == 'end' %}
+            {% set raw_current = states('sensor.envoy_EnvoyMAC_energy_consumption_today') %}
+            {% if raw_current in ['unknown', 'unavailable'] %}
+              {{ this.attributes.history_array | default([]) }}
+            {% else %}
+              {% set current = raw_current | float(0) %}
+              {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
+              {% set diff = (current - start_val) | round(2) %}
+              {% set hist = this.attributes.history_array | default([]) %}
+              
+              {# Only append to array if it passes the exact same sanity checks #}
+              {% if diff > 0 and start_val > 0 and diff < 20 %}
+                {{ (hist + [diff])[-7:] }}
+              {% else %}
+                {{ hist }}
+              {% endif %}
+            {% endif %}
+          {% else %}
+            {{ this.attributes.history_array | default([]) }}
+          {% endif %}
+
+# The Dynamic Average Calculator
+- sensor:
+    - name: "Average Evening Usage 7d"
+      unique_id: stat_avg_evening_usage_7d_template
+      unit_of_measurement: "kWh"
+      icon: mdi:chart-timeline-variant
+      state: >
+        {% set hist = state_attr('sensor.last_evening_usage', 'history_array') %}
+        {% if hist and hist | length > 0 %}
+          {{ (hist | sum / hist | length) | round(2) }}
+        {% else %}
+          0
         {% endif %}

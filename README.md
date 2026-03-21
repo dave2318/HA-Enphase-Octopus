@@ -62,13 +62,6 @@ sensor:
     max_age:
       hours: 24
 
-  - platform: statistics
-    name: "Average Evening Usage 7d"
-    unique_id: stat_avg_evening_usage_7d
-    entity_id: sensor.last_evening_usage
-    state_characteristic: mean
-    max_age:
-      days: 7
 ```
 
 Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.

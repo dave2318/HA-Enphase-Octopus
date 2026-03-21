@@ -147,6 +147,17 @@
           0.0
         {% endif %}
 
+    - name: "Next Greener Night"
+      unique_id: next_greener_night
+      icon: mdi:leaf
+      state: >
+        {% set next_start = state_attr('binary_sensor.octopus_energy_a_greenerNightsId_greenness_forecast_highlighted', 'next_start') %}
+        {% if next_start %}
+          {{ as_timestamp(next_start) | timestamp_custom('%a %d %b, %H:%M') }}
+        {% else %}
+          None Scheduled
+        {% endif %}
+
 - binary_sensor:
     - name: "Grid Charge Recommended"
       unique_id: grid_charge_recommended

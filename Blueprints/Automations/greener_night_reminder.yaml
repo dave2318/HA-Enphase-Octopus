@@ -1,0 +1,61 @@
+﻿blueprint:
+  name: "Notification: Octopus Greener Night Reminder"
+  description: Scans the Greener Nights calendar at a specific time and sends an alert if one is scheduled for tonight.
+  domain: automation
+  input:
+    cfg_calendar_entity:
+      name: Greener Nights Calendar
+      description: Select your Octopus Energy Greener Nights calendar entity.
+      selector:
+        entity:
+          domain: calendar
+    cfg_trigger_time:
+      name: Scan Time
+      description: The time of day to check the calendar.
+      default: "12:00:00"
+      selector:
+        time:
+    cfg_notify_service:
+      name: Notification Entity
+      description: The notification service to use (e.g., notify.notify).
+      default: notify.notify
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: single
+
+variables:
+  calendar_entity: !input cfg_calendar_entity
+  cfg_notify_service: !input cfg_notify_service
+
+triggers:
+  - trigger: time
+    at: !input cfg_trigger_time
+
+actions:
+  # Step 1: Read the specific Greener Nights calendar from right now until tomorrow at the same time
+  - action: calendar.get_events
+    target:
+      entity_id: !input cfg_calendar_entity
+    data:
+      start_date_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      end_date_time: "{{ (now() + timedelta(days=1)).strftime('%Y-%m-%d 12:00:00') }}"
+    response_variable: scheduled_events
+
+  # Step 2: Check if any events were returned in that window
+  - condition: template
+    value_template: >-
+      {% set events = scheduled_events[calendar_entity].events | default([]) %}
+      {{ events | length > 0 }}
+
+  # Step 3: Send the alert
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "🌿 Greener Night Tonight!"
+      message: |
+        Octopus has scheduled a Greener Night for tonight! 
+        
+        Don't forget to plug the EV in before you go to bed to take advantage of the extra green energy and cheaper rates.

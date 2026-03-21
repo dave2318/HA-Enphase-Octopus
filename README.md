@@ -98,6 +98,7 @@ Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text edi
 | `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | Your Octopus Export MPAN. |
 | `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | Your Octopus Import MPAN. |
 | `OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | Found in your Intelligent Dispatching sensor name. |
+| `greenerNightsId` | `YOUR_GREENER_NIGHTS_ID` | Found in your Greener Nights calendar or Greenness Forecast sensor names. |
 
 ### Step 4: Import Blueprints & Create Automations
 The core logic of this system is powered by Home Assistant Blueprints. This means you do not need to manually edit YAML to configure the automations.
@@ -124,6 +125,7 @@ This system uses a dual-target strategy to ensure you never accidentally drain y
 ## 🎛️ Dashboard Glossary
 
 ### System Stats & Weather
+* **Next Greener Night:** Displays the date and time of your next scheduled Octopus Greener Night so you know when to plug in your EV.
 * **Hard Block (EV/Cheap):** Shows `On` if your EV is charging or grid import rates are exceptionally cheap, safely locking the battery from exporting.
 * **Peak Period:** Shows `On` between 16:30 and 19:00.
 * **Current Dynamic Reserve Target:** The "Daytime Shield" percentage currently protecting your battery from random daytime export spikes.

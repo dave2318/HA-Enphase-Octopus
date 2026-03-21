@@ -115,13 +115,33 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 
 *Repeat this process for the Grid Charge Controller, ROI Audit, and Gateway Connection Alert blueprints.*
 
-## 🎛️ Understanding the UI Variables
+## 🧠 Understanding the Export Logic (Daytime Shield vs. Peak Dump)
+This system uses a dual-target strategy to ensure you never accidentally drain your battery before the expensive evening peak.
 
-Once installed, you will have several sliders in your Home Assistant UI. *(Note: Battery Capacity is intentionally missing from this list, as the system automatically reads real-time battery degradation and capacity via the Enphase integration!)* Here is what the available sliders control:
+1. **The Daytime Shield (Dynamic Reserve Target):** Used during the day. If export prices randomly spike at 14:00, the system will export *some* power, but strictly stops at this high reserve (e.g., 60%). This ensures your base load is protected until the evening.
+2. **The Golden Slot Dump (Peak Export Floor):** When your most profitable 30-minute window arrives between 16:30 and 19:00, the system ignores the Daytime Shield. It calculates exactly how much energy your house needs for the rest of the evening minus any remaining predicted solar generation. It aggressively dumps everything else to the grid, sometimes pushing the battery down to 10-30% for maximum profit.
 
-* **Battery Round Trip Efficiency (RTE)**: The percentage of energy retained during a full charge/discharge cycle (usually ~0.83 or 83% for Enphase). Used to calculate true arbitrage profitability.
-* **Grid Charge Forecast Threshold**: If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge.
-* **Minimum SOC Floor (Winter/Summer)**: The absolute lowest percentage the battery is allowed to reach during a forced export. This is your permanent safety net.
-* **Evening Usage Estimate (Winter/Summer)**: Acts as a failsafe/fallback training wheel. The system natively uses a 7-day rolling machine-learning average of your actual house consumption between 16:30 and 23:30 to dictate its export limits, but will fall back to these manual sliders if that historical data is ever unavailable (e.g., after a fresh install).
-* **Evening Usage Estimate (Holiday)**: The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
-* **Minimum SOC Floor (Holiday)**: The lowest battery percentage allowed while on vacation. Usually set very low (e.g., 10%) to safely maximize your export profits while you are away.
+## 🎛️ Dashboard Glossary
+
+### System Stats & Weather
+* **Hard Block (EV/Cheap):** Shows `On` if your EV is charging or grid import rates are exceptionally cheap, safely locking the battery from exporting.
+* **Peak Period:** Shows `On` between 16:30 and 19:00.
+* **Current Dynamic Reserve Target:** The "Daytime Shield" percentage currently protecting your battery from random daytime export spikes.
+* **Peak Export Floor:** The mathematically calculated minimum battery percentage required to survive the evening. During the "Golden Slot", the system will export everything above this line.
+* **Today's Golden Export Slot:** The specific half-hour block with the absolute highest export payout.
+* **Generated Today:** Physical solar energy generated so far.
+* **7-Day Average Evening Usage (Learned):** The AI's rolling 7-day average of your actual house load between 16:30 and 23:30. Used to perfectly calculate your required Peak Export Floor.
+* **Solar Left Today:** Solcast's prediction of how much solar energy will still be generated before sunset.
+* **Total Expected Today / Tomorrow:** Solcast's daily weather predictions.
+* **Battery Hours Left / Depleted At:** A smoothed estimate of when your battery will hit its reserve limit, based on your house's average load over the last 24 hours.
+* **Discharged / Charged Today / Yesterday:** Accumulative daily cycling stats.
+
+### System Variables
+* **Grid Charge Forecast Threshold:** If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge.
+* **Battery Round Trip Efficiency (RTE):** The percentage of energy retained during a full charge/discharge cycle (usually ~0.83 or 83% for Enphase). Used to calculate true arbitrage profitability.
+* **Evening Usage Estimate (Winter/Summer):** Acts as a fallback "training wheel." The system natively uses its 7-day AI average to dictate export limits, but falls back to these manual sliders if historical data is unavailable (e.g., fresh install).
+* **Minimum SOC Floor (Winter/Summer):** The absolute lowest percentage the battery is allowed to reach during a forced export. This is your permanent safety net.
+* **Winter Mode:** A manual toggle to switch the system into a more conservative battery retention state for darker, colder months.
+* **Holiday Mode:** A manual toggle that freezes the 7-day AI tracker from learning your vacation usage, while dropping the battery floor to maximize grid export profits while you are away.
+* **Evening Usage Estimate (Holiday):** The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
+* **Minimum SOC Floor (Holiday):** The lowest battery percentage allowed while on vacation. Usually set very low (e.g., 10%) to safely maximize exports.

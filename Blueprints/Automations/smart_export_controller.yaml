@@ -157,11 +157,11 @@ variables:
   
   should_export_goal: >-
     {% set blocked = is_cheap or car_charging %}  
-    {% set profit_ok = is_profitable and (is_holiday or not is_winter or soc_val > export_floor_val) %}  
-    {{ not blocked and (profit_ok or is_smart_peak) }}
+    {% set daytime_profit = is_profitable and (is_holiday or soc_val > reserve_val) %}  
+    {{ not blocked and (daytime_profit or is_smart_peak) }}
   
   stop_reason_short: >-
-    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif soc_val < reserve_val %}Reserve{% else %}Idle{% endif %}
+    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif not is_smart_peak and soc_val <= reserve_val %}Reserve{% elif is_smart_peak and soc_val <= export_floor_val %}Floor Hit{% else %}Idle{% endif %}
   
   stop_reason_long: >-
-    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid import rates are in the cheap window.{% elif soc_val < reserve_val and not is_peak %}SOC ({{ soc_val }}%) is below reserve ({{ reserve_val }}%).{% elif is_winter and not is_holiday and soc_val < export_floor_val and not is_smart_peak %}Winter Mode safety: SOC ({{ soc_val }}%) is below floor ({{ export_floor_val }}%).{% else %}Export is no longer profitable.{% endif %}
+    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid import rates are in the cheap window.{% elif not is_smart_peak and soc_val <= reserve_val %}Daytime arbitrage stopped: SOC ({{ soc_val }}%) hit the Dynamic Reserve ({{ reserve_val }}%).{% elif is_smart_peak and soc_val <= export_floor_val %}Peak dump complete: SOC reached the safety floor ({{ export_floor_val }}%).{% else %}Export is no longer profitable.{% endif %}

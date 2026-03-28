@@ -1,16 +1,6 @@
 ﻿# templates.yaml - Master Consolidated Version (V3.0 Predictive)
 
 - sensor:
-    - name: "Today Export Profit"
-      unique_id: today_export_profit
-      unit_of_measurement: "£"
-      icon: mdi:cash-plus
-      state: >
-        {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
-        {% set rate = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
-        {% set exported_kwh = states('sensor.grid_energy_export_today') | float(0) %}
-        {{ (exported_kwh * rate / 100) | round(2) }}
-        
     - name: "Export Profitability"
       unique_id: export_profitability_calc
       unit_of_measurement: "p"
@@ -182,10 +172,6 @@
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
         {{ forecast_low or ns.max_export > (avg_import / rte) }}
 
-    - name: "Export Profitable"
-      unique_id: export_profitable
-      state: "{{ states('sensor.export_profitability') | float(0) > 0 }}"
-
     - name: "In Cheap Import Window"
       unique_id: in_cheap_window
       state: >
@@ -328,6 +314,54 @@
           {{ current_profit }} 
         {% endif %}
 
+    - name: "Today Peak DTG Export"
+      unique_id: today_peak_dtg_export
+      unit_of_measurement: "kWh"
+      icon: mdi:battery-arrow-up
+      state: >
+        {% set current = states('sensor.today_peak_dtg_export') | float(0) %}
+        {% if trigger.platform == 'time' %} 
+          0.0
+        {% elif is_state('switch.enphase_dtg_mode', 'on') %}
+          {% if trigger.to_state.state in ['unknown', 'unavailable'] or trigger.from_state.state in ['unknown', 'unavailable'] %}
+            {{ current }}
+          {% else %}
+            {% set exported_now = (trigger.to_state.state | float(0)) - (trigger.from_state.state | float(0)) %}
+            {% if exported_now > 0 %}
+              {{ (current + exported_now) | round(3) }}
+            {% else %}
+              {{ current }}
+            {% endif %}
+          {% endif %}
+        {% else %}
+          {{ current }}
+        {% endif %}
+
+    - name: "Today Peak DTG Profit"
+      unique_id: today_peak_dtg_profit
+      unit_of_measurement: "£"
+      icon: mdi:cash-fast
+      state: >
+        {% set current_profit = states('sensor.today_peak_dtg_profit') | float(0) %}
+        {% if trigger.platform == 'time' %} 
+          0.0
+        {% elif is_state('switch.enphase_dtg_mode', 'on') %}
+          {% if trigger.to_state.state in ['unknown', 'unavailable'] or trigger.from_state.state in ['unknown', 'unavailable'] %}
+            {{ current_profit }}
+          {% else %}
+            {% set exported_now = (trigger.to_state.state | float(0)) - (trigger.from_state.state | float(0)) %}
+            {% if exported_now > 0 %}
+              {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+              {% set rate = ((raw_rate * 100) if raw_rate < 1.0 else raw_rate) / 100 %}
+              {{ (current_profit + (exported_now * rate)) | round(4) }}
+            {% else %} 
+              {{ current_profit }} 
+            {% endif %}
+          {% endif %}
+        {% else %} 
+          {{ current_profit }} 
+        {% endif %}
+
 - trigger:
     - platform: state
       entity_id: event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates
@@ -357,6 +391,16 @@
       unique_id: yesterday_battery_discharge_total
       unit_of_measurement: "kWh"
       state: "{{ states('sensor.calculated_battery_daily_discharge') }}"
+
+    - name: "Yesterday Peak DTG Export"
+      unique_id: yesterday_peak_dtg_export
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.today_peak_dtg_export') | float(0) }}"
+
+    - name: "Yesterday Peak DTG Profit"
+      unique_id: yesterday_peak_dtg_profit
+      unit_of_measurement: "£"
+      state: "{{ states('sensor.today_peak_dtg_profit') | float(0) }}"
 
 # --- V3.1 Predictive Evening Trackers (Array-Based & Outage-Proof) ---
 - trigger:
@@ -433,6 +477,19 @@
 
 # The Dynamic Average Calculator
 - sensor:
+    - name: "Average Evening Usage 7d"
+      unique_id: stat_avg_evening_usage_7d_template
+      unit_of_measurement: "kWh"
+      icon: mdi:chart-timeline-variant
+      state: >
+        {% set hist = state_attr('sensor.last_evening_usage', 'history_array') %}
+        {% if hist and hist | length > 0 %}
+          {{ (hist | sum / hist | length) | round(2) }}
+        {% else %}
+          0
+        {% endif %}
+        
+# The Dynamic Average Calculator
     - name: "Average Evening Usage 7d"
       unique_id: stat_avg_evening_usage_7d_template
       unit_of_measurement: "kWh"

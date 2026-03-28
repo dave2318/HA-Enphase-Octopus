@@ -48,6 +48,10 @@ views:
             name: Net Profit/kWh
           - entity: sensor.today_export_profit_accumulative
             name: Earned Today
+          - entity: sensor.today_peak_dtg_profit
+            name: Peak Dump Profit
+          - entity: sensor.today_peak_dtg_export
+            name: Peak Dump Vol.
       - type: horizontal-stack
         cards:
           - type: gauge
@@ -247,6 +251,7 @@ views:
             name: Battery SOC
           - entity: sensor.dynamic_reserve
             name: Reserve Target
+          - entity: sensor.battery_export_floor
       - type: history-graph
         title: Solar Generation (Last 24h)
         hours_to_show: 24

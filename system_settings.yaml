@@ -58,7 +58,7 @@ holiday_evening_usage_kwh:
   min: 0.0
   max: 10.0
   step: 0.1
-  initial: 0.5
+  initial: 2.1
 
 holiday_reserve_floor:
   name: Minimum SOC Floor (Holiday)
@@ -68,3 +68,30 @@ holiday_reserve_floor:
   max: 50
   step: 1
   initial: 10
+ 
+lifetime_solar_savings:
+  name: Lifetime Solar Savings
+  icon: mdi:solar-power
+  mode: box
+  unit_of_measurement: "£"
+  min: 0
+  max: 100000
+  step: 0.01
+
+lifetime_battery_savings:
+  name: Lifetime Battery Savings
+  icon: mdi:battery-charging
+  mode: box
+  unit_of_measurement: "£"
+  min: 0
+  max: 100000
+  step: 0.01
+
+lifetime_export_earnings:
+  name: Lifetime Export Earnings
+  icon: mdi:cash-fast
+  mode: box
+  unit_of_measurement: "£"
+  min: 0
+  max: 100000
+  step: 0.01

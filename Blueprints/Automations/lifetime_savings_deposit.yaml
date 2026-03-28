@@ -1,0 +1,125 @@
+﻿blueprint:
+  name: "Energy: Lifetime Savings Nightly Deposit"
+  description: >-
+    Calculates your daily savings from Solar, Battery arbitrage, and Export earnings, 
+    and deposits them into your lifetime tracking helpers just before midnight.
+    (Automatically tracks your highest daily Octopus rate for accurate math).
+  domain: automation
+  input:
+    cfg_vault_solar:
+      name: Solar Savings Vault (Input Number)
+      selector:
+        entity:
+          domain: input_number
+    cfg_vault_battery:
+      name: Battery Savings Vault (Input Number)
+      selector:
+        entity:
+          domain: input_number
+    cfg_vault_export:
+      name: Export Earnings Vault (Input Number)
+      selector:
+        entity:
+          domain: input_number
+    cfg_sensor_export_daily:
+      name: Today's Export Earnings (£)
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_discharge_daily:
+      name: Today's Battery Discharge (kWh)
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_solar_gen:
+      name: Today's Total Solar Generation (kWh)
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_solar_export:
+      name: Today's Total Solar Exported (kWh)
+      selector:
+        entity:
+          domain: sensor
+    cfg_event_import_rates:
+      name: Octopus Import Rates Today
+      selector:
+        entity:
+          domain: event
+    cfg_trigger_time:
+      name: Deposit Time
+      description: Run this just before the daily sensors reset.
+      default: "23:58:00"
+      selector:
+        time:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input cfg_trigger_time
+
+variables:
+  vault_solar: !input cfg_vault_solar
+  vault_battery: !input cfg_vault_battery
+  vault_export: !input cfg_vault_export
+  sensor_export: !input cfg_sensor_export_daily
+  sensor_discharge: !input cfg_sensor_discharge_daily
+  sensor_gen: !input cfg_sensor_solar_gen
+  sensor_export_kwh: !input cfg_sensor_solar_export
+  event_rates: !input cfg_event_import_rates
+
+  # 1. Export Earnings (Direct read)
+  daily_export: "{{ states(sensor_export) | float(0) }}"
+
+  # 2. Find the Octopus Day/Peak Rate
+  peak_rate: >
+    {% set rates = state_attr(event_rates, 'rates') or [] %}
+    {% set ns = namespace(max=0.31) %}
+    {% for r in rates %}
+      {% if r.value_inc_vat > ns.max %}{% set ns.max = r.value_inc_vat %}{% endif %}
+    {% endfor %}
+    {{ ns.max }}
+
+  # 3. Battery Savings (Discharge * Peak Rate avoided)
+  daily_discharge: "{{ states(sensor_discharge) | float(0) }}"
+  daily_battery: "{{ (daily_discharge * peak_rate) | round(2) }}"
+
+  # 4. Direct Solar Savings (Generated - Exported = Consumed * Peak Rate avoided)
+  gen_kwh: "{{ states(sensor_gen) | float(0) }}"
+  export_kwh: "{{ states(sensor_export_kwh) | float(0) }}"
+  direct_used: "{{ (gen_kwh - export_kwh) if (gen_kwh - export_kwh) > 0 else 0 }}"
+  daily_solar: "{{ (direct_used * peak_rate) | round(2) }}"
+
+actions:
+  # Deposit Export Earnings
+  - action: input_number.set_value
+    target:
+      entity_id: "{{ vault_export }}"
+    data:
+      value: "{{ (states(vault_export) | float(0) + daily_export) | round(2) }}"
+      
+  # Deposit Battery Savings
+  - action: input_number.set_value
+    target:
+      entity_id: "{{ vault_battery }}"
+    data:
+      value: "{{ (states(vault_battery) | float(0) + daily_battery) | round(2) }}"
+      
+  # Deposit Solar Savings
+  - action: input_number.set_value
+    target:
+      entity_id: "{{ vault_solar }}"
+    data:
+      value: "{{ (states(vault_solar) | float(0) + daily_solar) | round(2) }}"
+      
+  # Log it for peace of mind
+  - action: logbook.log
+    data:
+      name: Lifetime ROI Tracker
+      message: >
+        Deposited £{{ daily_export }} (Export), £{{ daily_battery }} (Battery avoidance), and £{{ daily_solar }} (Direct Solar use) into the vault. (Rate used: £{{ peak_rate }})
+      entity_id: "{{ vault_export }}"

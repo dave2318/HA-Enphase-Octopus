@@ -66,6 +66,7 @@ actions:
 
         📥 Import Cost: £{{ "{:.2f}".format(import_cost_val) }} (From {{ import_kwh_val | round(2) }} kWh imported)
         💸 Export Earnings: £{{ "{:.2f}".format(export_earnings_val) }} (From {{ export_kwh_val | round(2) }} kWh exported)
+          ↳ Of which Peak Dump: £{{ "{:.2f}".format(dtg_profit_val) }} ({{ dtg_export_val | round(2) }} kWh)
         ⚖️ Net Balance: {{ 'PROFIT' if net_result > 0 else 'NET COST' }} of £{{ "{:.2f}".format(net_result | abs) }}
 
         ------------------------------
@@ -91,6 +92,8 @@ variables:
   cfg_import_cost: !input cfg_import_cost
   cfg_event_import_today: !input cfg_event_import_today
   cfg_switch_charge: !input cfg_switch_charge
+  dtg_export_val: "{{ states('sensor.yesterday_peak_dtg_export') | float(0) }}"
+  dtg_profit_val: "{{ states('sensor.yesterday_peak_dtg_profit') | float(0) }}"
 
   sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
   solar_gen_val: "{{ state_attr('sensor.solar_production_daily', 'last_period') | float(0) }}"

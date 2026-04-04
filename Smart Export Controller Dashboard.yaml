@@ -52,6 +52,7 @@ views:
             name: Peak Dump Profit
           - entity: sensor.today_peak_dtg_export
             name: Peak Dump Vol.
+          - entity: input_number.lifetime_solar_savings
       - type: horizontal-stack
         cards:
           - type: gauge
@@ -222,26 +223,20 @@ views:
             name: Peak Export Floor
           - entity: sensor.next_golden_export_slot
             name: Today's Golden Export Slot
-          - entity: sensor.envoy_EnvoyMAC_energy_production_today
-            name: Generated Today
-          - entity: sensor.average_evening_usage_7d
-            name: 7-Day Average Evening Usage (Learned)
-          - entity: sensor.combined_solar_forecast_remaining
-            name: Solar Left Today
           - entity: sensor.combined_solar_forecast_today
             name: Total Expected Today
+          - entity: sensor.envoy_EnvoyMAC_energy_production_today
+            name: Generated Today
+          - entity: sensor.combined_solar_forecast_remaining
+            name: Solar Left Today
           - entity: sensor.combined_solar_forecast_tomorrow
             name: Total Expected Tomorrow
+          - entity: sensor.average_evening_usage_7d
+            name: 7-Day Average Evening Usage (Learned)
           - entity: sensor.battery_time_remaining_real_world
             name: Battery Hours Left (Smoothed)
           - entity: sensor.battery_depleted_at
             name: Expected Depletion Time
-          - entity: sensor.calculated_battery_daily_discharge
-            name: Discharged Today
-          - entity: sensor.calculated_battery_daily_charge
-            name: Charged Today
-          - entity: sensor.yesterday_battery_discharge_total
-            name: Discharged Yesterday
           - entity: sensor.next_greener_night
       - type: history-graph
         title: SOC vs Reserve (Last 24h)

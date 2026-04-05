@@ -1,0 +1,74 @@
+﻿blueprint:
+  name: "Energy: CFG Hard Failsafe Watchdog"
+  description: >-
+    Guarantees the battery stops charging from the grid outside of cheap periods.
+    Acts as a bulletproof backup to the main automations.
+  domain: automation
+  input:
+    cfg_switch_charge:
+      name: Battery Grid Charge Switch (CFG)
+      description: The switch that forces your battery to charge from the grid.
+      selector:
+        entity:
+          domain: switch
+    cfg_intelligent_dispatch:
+      name: Octopus Intelligent Dispatch Sensor
+      description: The binary sensor tracking your cheap EV slots.
+      selector:
+        entity:
+          domain: binary_sensor
+    cfg_notify_service:
+      name: Notification Entity
+      default: notify.notify
+      selector:
+        text:
+
+# ====================================================
+mode: single
+
+variables:
+  cfg_notify_service: !input cfg_notify_service
+
+trigger:
+  # 1. Standard shutoff time
+  - platform: time
+    at: "05:30:00"
+  # 2. Intelligent dispatch ends
+  - platform: state
+    entity_id: !input cfg_intelligent_dispatch
+    to: "off"
+  # 3. Home Assistant restarts (catches missed shutoffs)
+  - platform: homeassistant
+    event: start
+  # 4. Manual override trap (If someone turns it on at noon by mistake)
+  - platform: state
+    entity_id: !input cfg_switch_charge
+    to: "on"
+    for:
+      minutes: 1
+condition:
+  # Is the switch actually on?
+  - condition: state
+    entity_id: !input cfg_switch_charge
+    state: "on"
+  # Is it outside the guaranteed cheap window?
+  - condition: time
+    after: "05:30:00"
+    before: "23:30:00"
+  # Is Intelligent Dispatch officially off?
+  - condition: state
+    entity_id: !input cfg_intelligent_dispatch
+    state: "off"
+action:
+  - action: switch.turn_off
+    target:
+      entity_id: !input cfg_switch_charge
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "🛡️ Watchdog: CFG Forced Off"
+      message: "The Failsafe Watchdog detected the grid charger was active outside of cheap IOG rates and shut it down to protect your balance."
+  - action: logbook.log
+    data:
+      name: CFG Watchdog
+      message: Forced Grid Charge OFF.
+      entity_id: !input cfg_switch_charge

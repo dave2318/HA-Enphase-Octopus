@@ -1,0 +1,93 @@
+﻿blueprint:
+  name: "Energy: IOG Daytime Rescue Charge"
+  description: >-
+    Charges the battery during a random daytime Intelligent Octopus dispatch, 
+    BUT only if the battery won't make it to the evening and the sun has vanished.
+  domain: automation
+  input:
+    cfg_intelligent_dispatch:
+      name: Octopus Intelligent Dispatch Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+    cfg_sensor_soc:
+      name: Battery SOC Sensor
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    cfg_sensor_export_floor:
+      name: Battery Export Floor Sensor
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_solar_remaining:
+      name: Combined Solar Forecast Remaining
+      selector:
+        entity:
+          domain: sensor
+    cfg_switch_charge:
+      name: Battery Grid Charge Switch (CFG)
+      selector:
+        entity:
+          domain: switch
+    cfg_notify_service:
+      name: Notification Entity
+      default: notify.notify
+      selector:
+        text:
+
+# ====================================================
+mode: single
+
+variables:
+  cfg_notify_service: !input cfg_notify_service
+  soc_sensor: !input cfg_sensor_soc
+  floor_sensor: !input cfg_sensor_export_floor
+  dispatch_sensor: !input cfg_intelligent_dispatch
+
+trigger:
+  - platform: state
+    entity_id: !input cfg_intelligent_dispatch
+    to: "on"
+condition:
+  # 1. It is daytime (Outside the normal guaranteed cheap night window)
+  - condition: time
+    after: "05:30:00"
+    before: "16:00:00"
+    
+  # 2. Battery is struggling: Current SOC is lower than what we need for the evening peak
+  - condition: numeric_state
+    entity_id: !input cfg_sensor_soc
+    below: !input cfg_sensor_export_floor
+    
+  # 3. Solar is dead: Less than 3 kWh expected for the rest of the day
+  - condition: numeric_state
+    entity_id: !input cfg_sensor_solar_remaining
+    below: 3.0 
+action:
+  - action: switch.turn_on
+    target:
+      entity_id: !input cfg_switch_charge
+      
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "⚡ IOG Rescue Charge Active"
+      message: >-
+        Octopus triggered a 3.49p daytime slot. 
+        Current SOC ({{ states(soc_sensor) }}%) is below the Evening Floor ({{ states(floor_sensor) }}%), and remaining solar is poor. 
+        Topping up the battery!
+        
+  # Wait for Octopus to end the cheap slot, OR for the battery to hit 100%
+  - wait_template: >-
+      {{ is_state(dispatch_sensor, 'off') or states(soc_sensor) | float(0) >= 100 }}
+         
+  - action: switch.turn_off
+    target:
+      entity_id: !input cfg_switch_charge
+      
+  - action: logbook.log
+    data:
+      name: IOG Rescue Charge
+      message: Finished daytime rescue charge.
+      entity_id: !input cfg_switch_charge

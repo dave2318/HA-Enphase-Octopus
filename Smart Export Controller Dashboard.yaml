@@ -80,28 +80,24 @@ views:
         title: Next Expected Behaviour
         content: >
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-
-          {% set floor = states('sensor.battery_export_floor') | float(0) %} 
-
-          {% set reserve = states('sensor.dynamic_reserve') | float(0) %} 
-
-          {% set winter = is_state('input_boolean.winter_mode', 'on') %} 
-
-          {% set holiday = is_state('input_boolean.holiday_mode', 'on') %} 
-
-          {% set is_profitable = states('sensor.export_profitability') |
-          float(0) > 0 %} 
-
-          {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
-
-          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  
-
+          {% set floor = states('sensor.battery_export_floor') | float(0) %}  {%
+          set reserve = states('sensor.dynamic_reserve') | float(0) %}  {% set
+          winter = is_state('input_boolean.winter_mode', 'on') %}  {% set
+          holiday = is_state('input_boolean.holiday_mode', 'on') %}  {% set
+          is_profitable = states('sensor.export_profitability') | float(0) > 0
+          %}  {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
           {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
           'on') %}
 
+          {# NEW: Detect if the Rescue Charge is running #} {% set rescue =
+          is_state('switch.enphase_cfg_mode', 'on') and
+          is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching',
+          'on') and (now().hour >= 5 and now().hour < 23) %}
 
           **Current Strategy:** {% if holiday %}
             ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
+          {% elif rescue %}
+            🚑 **IOG RESCUE:** Octopus triggered a cheap daytime slot! Topping up a low battery.
           {% elif car %}
             🚗 **BLOCK:** EV is charging or in cheap window.
           {% elif winter and is_profitable and soc < floor %}
@@ -165,39 +161,31 @@ views:
         title: 🔋 Grid Charge Decision
         content: >-
           {% set forecast = states('sensor.combined_solar_forecast_tomorrow') |
-          float(0) %} 
-
-          {% set threshold =
+          float(0) %}  {% set threshold =
           states('input_number.grid_charge_forecast_threshold') | float(0) %} 
-
           {% set charge_rec = is_state('binary_sensor.grid_charge_recommended',
-          'on') %}
-
-          {% set next_export_rates =
+          'on') %} {% set target = states('sensor.calculated_target_soc') %} {%
+          set morning = states('sensor.morning_solar_yield_forecast') %} {% set
+          rates_available =
           state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates',
-          'rates') %}
+          'rates') != none %}
 
-          {% set rates_available = next_export_rates != none and
-          next_export_rates | length > 0 %}
+          {% if not rates_available %} **System Verdict:** ⏳ AWAITING OCTOPUS
+          RATES Tomorrow's dynamic pricing hasn't been published yet. {% else %}
+          **System Verdict:** {{ '✅ CHARGING TONIGHT' if charge_rec else '❌ NO
+          GRID CHARGE' }}
 
+          {% if charge_rec %} **Target SOC:** {{ target }}%
 
-          {% if not rates_available %}
-            **System Verdict:** ⏳ AWAITING OCTOPUS RATES
-            
-            **Why?** Tomorrow's dynamic pricing hasn't been published yet (usually arrives around 16:00). The system will pause its arbitrage calculations until it knows exactly how much it can sell energy for tomorrow.
-          {% else %}
-            **System Verdict:** {{ '✅ CHARGING TONIGHT' if charge_rec else '❌ NO GRID CHARGE' }}
-
-            **Why?** {% if charge_rec %}
-              {% if forecast < threshold %}
-                ☁️ **Low Solar:** Tomorrow's forecast ({{ forecast }} kWh) is below your safety threshold ({{ threshold }} kWh).
-              {% else %}
-                📈 **Arbitrage Failsafe:** Forecast is high ({{ forecast }} kWh), but tomorrow's peak export rate makes it profitable to buy cheap night energy to sell later!
-              {% endif %}
-            {% else %}
-              ☀️ **Plenty of Sun:** Forecast ({{ forecast }} kWh) is above threshold ({{ threshold }} kWh), and arbitrage profit margins are too tight to force a charge.
-            {% endif %}
-          {% endif %}
+          **Why?** {% if forecast < threshold %} ☁️ Tomorrow's overall forecast
+          ({{ forecast }} kWh) is poor. Forcing a full charge. {% else %} 📈
+          **Smart Arbitrage:** Forecast is high ({{ forecast }} kWh), but
+          morning yield is only {{ morning }} kWh. Charging to {{ target }}% to
+          cover the morning deficit while leaving room for afternoon sun! {%
+          endif %} {% else %} **Why?** ☀️ Plenty of sun expected ({{ forecast }}
+          kWh), and the morning yield ({{ morning }} kWh) will cover your
+          breakfast routine. Battery will stay empty to avoid solar
+          displacement. {% endif %} {% endif %}
       - type: entities
         title: Controls & Overrides
         show_header_toggle: false
@@ -238,6 +226,8 @@ views:
           - entity: sensor.battery_depleted_at
             name: Expected Depletion Time
           - entity: sensor.next_greener_night
+          - entity: sensor.calculated_target_soc
+          - entity: sensor.morning_solar_yield_forecast
       - type: history-graph
         title: SOC vs Reserve (Last 24h)
         hours_to_show: 24

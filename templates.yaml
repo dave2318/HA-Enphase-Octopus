@@ -1,6 +1,41 @@
 ﻿# templates.yaml - Master Consolidated Version (V3.0 Predictive)
 
 - sensor:
+    - name: "Morning Solar Yield Forecast"
+      unique_id: morning_solar_yield_forecast
+      unit_of_measurement: "kWh"
+      icon: mdi:weather-sunset-up
+      state: >
+        {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
+        {% set ns = namespace(yield=0.0) %}
+        {% if tom_forecast_data %}
+          {% for slot in tom_forecast_data %}
+            {% set slot_dt = as_datetime(slot.period_start) | as_local %}
+            {% if slot_dt >= today_at('05:00') + timedelta(days=1) and slot_dt < today_at('11:00') + timedelta(days=1) %}
+              {% set ns.yield = ns.yield + slot.pv_estimate | float(0) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.yield | round(2) }}
+
+    - name: "Calculated Target SOC"
+      unique_id: calculated_target_soc
+      unit_of_measurement: "%"
+      icon: mdi:battery-charging-50
+      state: >
+        {% set threshold = states('input_number.grid_charge_forecast_threshold') | float(12.0) %}
+        {% set forecast = states('sensor.combined_solar_forecast_tomorrow') | float(0) %}
+        {% set yield = states('sensor.morning_solar_yield_forecast') | float(0) %}
+        {% set deficit = [0.0, 2.5 - yield] | max %}
+        {% set current_soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+        
+        {% if forecast < threshold %}
+          100
+        {% else %}
+          {% set needed_soc = ((deficit / 5.0) * 100) + 5 %}
+          {{ [100, current_soc + needed_soc] | min | round(0) }}
+        {% endif %}
+
     - name: "Export Profitability"
       unique_id: export_profitability_calc
       unit_of_measurement: "p"
@@ -88,10 +123,18 @@
         {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) / 100 %}
         {% set reserve = 0.06 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
-        {% set avg_load = states('sensor.average_house_load_24h') | float(0) %}
-        {% if soc > reserve and avg_load > 0.1 %}
-          {{ ((soc - reserve) * capacity * rte / avg_load) | round(1) }}
-        {% else %} 0.0 {% endif %}
+        
+        {# Grab the 7-day evening total (kWh) #}
+        {% set evening_kwh = states('sensor.average_evening_usage_7d') | float(0) %}
+        
+        {# Divide by 7 hours to get the average kW burn rate. Fallback to 0.3kW if the sensor is 0 #}
+        {% set burn_rate_kw = (evening_kwh / 7) if evening_kwh > 0 else 0.3 %}
+        
+        {% if soc > reserve %}
+          {{ (((soc - reserve) * capacity * rte) / burn_rate_kw) | round(1) }}
+        {% else %} 
+          0.0 
+        {% endif %}
 
     - name: "Battery Depleted At"
       unique_id: battery_depleted_at
@@ -141,7 +184,7 @@
       unique_id: next_greener_night
       icon: mdi:leaf
       state: >
-        {% set next_start = state_attr('binary_sensor.octopus_energy_a_greenerNightsId_greenness_forecast_highlighted', 'next_start') %}
+        {% set next_start = state_attr('binary_sensor.octopus_energy_a_OctopusAccountId_greenness_forecast_highlighted', 'next_start') %}
         {% if next_start %}
           {{ as_timestamp(next_start) | timestamp_custom('%a %d %b, %H:%M') }}
         {% else %}
@@ -153,24 +196,56 @@
       unique_id: grid_charge_recommended
       state: >
         {% set threshold = states('input_number.grid_charge_forecast_threshold') | float(12.0) %}
-        {% set forecast_low = states('sensor.combined_solar_forecast_tomorrow') | float(0) < threshold %}
+        {% set forecast = states('sensor.combined_solar_forecast_tomorrow') | float(0) %}
+        {% set forecast_low = forecast < threshold %}
+        
+        {# --- 1. Arbitrage Profitability Check --- #}
         {% set imp_today = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_current_day_rates', 'rates') or [] %}
         {% set imp_tom = state_attr('event.octopus_energy_electricity_OctopusImportMPAN_next_day_rates', 'rates') or [] %}
         {% set all_imp = imp_today + imp_tom %}
         {% set ns = namespace(charge_rates=[], max_export=0.0) %}
+        
         {% for r in all_imp %}
           {% set dt = as_datetime(r.start) | as_local %}
           {% if dt >= today_at('23:30') and dt < today_at('05:30') + timedelta(days=1) %}
             {% set ns.charge_rates = ns.charge_rates + [r.value_inc_vat * 100] %}
           {% endif %}
         {% endfor %}
+        
         {% set exp_rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates', 'rates') or [] %}
         {% for r in exp_rates %}
             {% if (r.value_inc_vat * 100) > ns.max_export %}{% set ns.max_export = (r.value_inc_vat * 100) %}{% endif %}
         {% endfor %}
+        
         {% set avg_import = (ns.charge_rates | sum / ns.charge_rates | length) if ns.charge_rates | length > 0 else 999.0 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
-        {{ forecast_low or ns.max_export > (avg_import / rte) }}
+        {% set arbitrage_margin_ok = ns.max_export > (avg_import / rte) %}
+        
+        {# --- 2. Solar Displacement Ceiling --- #}
+        {% set solar_ceiling = threshold + 6.0 %}
+        {% set forecast_massive = forecast >= solar_ceiling %}
+        
+        {# --- 3. THE SOLCAST MORNING SCANNER --- #}
+        {# Look at tomorrow's array and sum the expected yield between 05:30 and 11:00 #}
+        {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
+        {% set ns_solar = namespace(morning_yield=0.0) %}
+        
+        {% if tom_forecast_data is not none %}
+          {% for slot in tom_forecast_data %}
+            {% set slot_dt = as_datetime(slot.period_start) | as_local %}
+            {# If the slot is for tomorrow between 5am and 11am #}
+            {% if slot_dt >= today_at('05:00') + timedelta(days=1) and slot_dt < today_at('11:00') + timedelta(days=1) %}
+              {% set ns_solar.morning_yield = ns_solar.morning_yield + slot.pv_estimate | float(0) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        
+        {# Estimate your morning usage (e.g., 2.5 kWh for kettles, showers, breakfast) #}
+        {% set morning_deficit = ns_solar.morning_yield < 2.5 %}
+        
+        {# --- 4. Final System Verdict --- #}
+        {# Charge if: Overall forecast is low OR (Arbitrage is good AND (We aren't displacing solar OR we desperately need morning power)) #}
+        {{ forecast_low or (arbitrage_margin_ok and (not forecast_massive or morning_deficit)) }}
 
     - name: "In Cheap Import Window"
       unique_id: in_cheap_window
@@ -218,7 +293,7 @@
           {% set dynamic_threshold = 7.5 %}
         {% endif %}
 
-        {{ is_state('binary_sensor.octopus_energy_OctopusAccountId_intelligent_dispatching', 'on') 
+        {{ is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching', 'on') 
            or is_state('binary_sensor.in_cheap_import_window', 'on') 
            or import_rate <= dynamic_threshold }}
 

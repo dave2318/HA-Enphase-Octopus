@@ -1,0 +1,102 @@
+﻿blueprint:
+  name: "Notification: Weekly Solar Forecast Digest"
+  description: Sends a 7-day solar generation visual forecast every Sunday at lunchtime.
+  domain: automation
+  input:
+    cfg_notify_service:
+      name: Notification Entity
+      description: The notification service to use (e.g., notify.notify).
+      default: notify.notify
+      selector:
+        text:
+    cfg_sensor_today:
+      name: Solcast Forecast Today
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_tomorrow:
+      name: Solcast Forecast Tomorrow
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_day_3:
+      name: Solcast Forecast Day 3
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_day_4:
+      name: Solcast Forecast Day 4
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_day_5:
+      name: Solcast Forecast Day 5
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_day_6:
+      name: Solcast Forecast Day 6
+      selector:
+        entity:
+          domain: sensor
+    cfg_sensor_day_7:
+      name: Solcast Forecast Day 7
+      selector:
+        entity:
+          domain: sensor
+
+# ====================================================
+mode: single
+
+variables:
+  cfg_notify_service: !input cfg_notify_service
+  s_today: !input cfg_sensor_today
+  s_tom: !input cfg_sensor_tomorrow
+  s_d3: !input cfg_sensor_day_3
+  s_d4: !input cfg_sensor_day_4
+  s_d5: !input cfg_sensor_day_5
+  s_d6: !input cfg_sensor_day_6
+  s_d7: !input cfg_sensor_day_7
+
+trigger:
+  - platform: time
+    at: "12:00:00"
+
+condition:
+  - condition: time
+    weekday:
+      - sun
+
+action:
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "🌤️ Weekly Solar Outlook & Insights"
+      message: |
+        {% set days = [
+          {"name": now().strftime('%A'), "val": states(s_today) | float(0)},
+          {"name": (now() + timedelta(days=1)).strftime('%A'), "val": states(s_tom) | float(0)},
+          {"name": (now() + timedelta(days=2)).strftime('%A'), "val": states(s_d3) | float(0)},
+          {"name": (now() + timedelta(days=3)).strftime('%A'), "val": states(s_d4) | float(0)},
+          {"name": (now() + timedelta(days=4)).strftime('%A'), "val": states(s_d5) | float(0)},
+          {"name": (now() + timedelta(days=5)).strftime('%A'), "val": states(s_d6) | float(0)},
+          {"name": (now() + timedelta(days=6)).strftime('%A'), "val": states(s_d7) | float(0)}
+        ] %}
+        {%- set best_day = (days | sort(attribute='val', reverse=true)) | first %}
+        {%- set worst_day = (days | sort(attribute='val')) | first %}
+        {%- set total_kwh = days | map(attribute='val') | sum %}
+        
+        Here is your Solcast solar generation forecast for the week ahead!
+
+        📊 7-DAY VISUAL FORECAST
+        ------------------------------
+        {%- for d in days %}
+        {{ d.name }} ({{ d.val | round(1) }} kWh)
+        {{ '█' * (d.val | int) }}
+        {%- endfor %}
+
+        ------------------------------
+        🏆 WEEKLY INSIGHTS
+        ------------------------------
+        🌟 Best Day: {{ best_day.name }} ({{ best_day.val | round(1) }} kWh)
+        ☔ Lowest Yield: {{ worst_day.name }} ({{ worst_day.val | round(1) }} kWh)
+        🔋 Expected Weekly Total: {{ total_kwh | round(1) }} kWh

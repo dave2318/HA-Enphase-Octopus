@@ -158,34 +158,61 @@ views:
             🏠 HOLDING FOR HOUSE
           {% endif %}
       - type: markdown
-        title: 🔋 Grid Charge Decision
-        content: >-
-          {% set forecast = states('sensor.combined_solar_forecast_tomorrow') |
-          float(0) %}  {% set threshold =
-          states('input_number.grid_charge_forecast_threshold') | float(0) %} 
-          {% set charge_rec = is_state('binary_sensor.grid_charge_recommended',
-          'on') %} {% set target = states('sensor.calculated_target_soc') %} {%
-          set morning = states('sensor.morning_solar_yield_forecast') %} {% set
-          rates_available =
+        title: Grid Charge Decision (23:30)
+        content: >
+          {% set target = states('sensor.calculated_target_soc') | float(0) %}
+          {% set current = states('sensor.envoy_EnvoyMAC_battery') |
+          float(0) %} {% set forecast =
+          states('sensor.combined_solar_forecast_tomorrow') | float(0) %} {% set
+          threshold = states('input_number.grid_charge_forecast_threshold') |
+          float(12.0) %}
+
+          {# Arbitrage Math for the UI #} {% set rte =
+          states('input_number.battery_efficiency_rte') | float(0.83) %} {% set
+          raw_imp =
+          states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate')
+          | float(0) %} {% set import_rate = (raw_imp * 100) if raw_imp < 1.0
+          else raw_imp %}
+
+          {% set export_event =
           state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates',
-          'rates') != none %}
+          'rates') or [] %} {% set current_event =
+          state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates',
+          'rates') or [] %} {% set rates = export_event if export_event | length
+          > 0 else current_event %}
 
-          {% if not rates_available %} **System Verdict:** ⏳ AWAITING OCTOPUS
-          RATES Tomorrow's dynamic pricing hasn't been published yet. {% else %}
-          **System Verdict:** {{ '✅ CHARGING TONIGHT' if charge_rec else '❌ NO
-          GRID CHARGE' }}
+          {% set ns = namespace(total=0.0, count=0) %} {% for r in rates %}
+            {% set start_dt = as_datetime(r.start) | as_local %}
+            {% if start_dt.time() >= strptime('09:00', '%H:%M').time() and start_dt.time() < strptime('16:00', '%H:%M').time() %}
+              {% set val = r.value_inc_vat %}
+              {% set rate_p = (val * 100) if val < 1.0 else val %}
+              {% set ns.total = ns.total + rate_p %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %} {% set avg_day_export = (ns.total / ns.count) if ns.count
+          > 0 else 0 %} {% set is_profitable = (avg_day_export * rte) >
+          import_rate %}
 
-          {% if charge_rec %} **Target SOC:** {{ target }}%
+          **System Verdict:** {% if target > current %} ✅ CHARGING TONIGHT {%
+          else %} 💤 STAYING IDLE {% endif %}
 
-          **Why?** {% if forecast < threshold %} ☁️ Tomorrow's overall forecast
-          ({{ forecast }} kWh) is poor. Forcing a full charge. {% else %} 📈
-          **Smart Arbitrage:** Forecast is high ({{ forecast }} kWh), but
-          morning yield is only {{ morning }} kWh. Charging to {{ target }}% to
-          cover the morning deficit while leaving room for afternoon sun! {%
-          endif %} {% else %} **Why?** ☀️ Plenty of sun expected ({{ forecast }}
-          kWh), and the morning yield ({{ morning }} kWh) will cover your
-          breakfast routine. Battery will stay empty to avoid solar
-          displacement. {% endif %} {% endif %}
+          **Target SOC:** {{ target | round(0) }}% *(Current: {{ current |
+          round(0) }}%)*
+
+          **Why?** {% if is_profitable %} 📈 **Wall Street Mode:** Tomorrow's
+          average daytime export rate ({{ avg_day_export | round(2) }}p) beats
+          tonight's import rate ({{ import_rate | round(2) }}p) even after
+          battery loss. Filling to 100% so all daytime solar is forced out to
+          the grid for pure profit!
+
+          {% elif forecast < threshold %} ☁️ **Bad Weather Override:**
+          Tomorrow's solar forecast ({{ forecast | round(1) }} kWh) is below the
+          {{ threshold }} kWh safety limit. Charging to 100% to protect the
+          house.
+
+          {% else %} 🛡️ **Dynamic Survival Charge:** Tomorrow's sun is great.
+          Target set to {{ target | round(0) }}% to survive the overnight burn
+          rate without wasting space for tomorrow's free solar. {% endif %}
       - type: entities
         title: Controls & Overrides
         show_header_toggle: false
@@ -201,16 +228,37 @@ views:
       - type: entities
         title: System Stats & Weather
         entities:
+          - type: section
+            label: Live Status
           - entity: binary_sensor.hard_block_active
             name: Hard Block (EV/Cheap)
           - entity: binary_sensor.in_peak_window
             name: Peak Period
+          - entity: sensor.next_greener_night
+          - type: section
+            label: Evening & Export Strategy
           - entity: sensor.dynamic_reserve
             name: Current Dynamic Reserve Target
           - entity: sensor.battery_export_floor
             name: Peak Export Floor
           - entity: sensor.next_golden_export_slot
             name: Today's Golden Export Slot
+          - entity: sensor.average_evening_usage_7d
+            name: 7-Day Avg Evening Usage (Learned)
+          - entity: sensor.battery_time_remaining_real_world
+            name: Battery Hours Left (Smoothed)
+          - entity: sensor.battery_depleted_at
+            name: Expected Depletion Time
+          - type: section
+            label: Morning Charge Strategy
+          - entity: sensor.calculated_target_soc
+            name: Target SOC (Overnight Charge)
+          - entity: sensor.average_morning_usage_7d
+            name: 7-Day Avg Morning Usage (Learned)
+          - entity: sensor.morning_solar_yield_forecast
+            name: Morning Solar Yield Forecast
+          - type: section
+            label: Solar Forecaster
           - entity: sensor.combined_solar_forecast_today
             name: Total Expected Today
           - entity: sensor.envoy_EnvoyMAC_energy_production_today
@@ -219,15 +267,6 @@ views:
             name: Solar Left Today
           - entity: sensor.combined_solar_forecast_tomorrow
             name: Total Expected Tomorrow
-          - entity: sensor.average_evening_usage_7d
-            name: 7-Day Average Evening Usage (Learned)
-          - entity: sensor.battery_time_remaining_real_world
-            name: Battery Hours Left (Smoothed)
-          - entity: sensor.battery_depleted_at
-            name: Expected Depletion Time
-          - entity: sensor.next_greener_night
-          - entity: sensor.calculated_target_soc
-          - entity: sensor.morning_solar_yield_forecast
       - type: history-graph
         title: SOC vs Reserve (Last 24h)
         hours_to_show: 24
@@ -257,6 +296,52 @@ views:
         entities:
           - entity: sensor.export_profitability
             name: Net Profit (p)
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Export Rates (Today & Tomorrow)
+          show_states: true
+          colorize_states: true
+        graph_span: 48h
+        span:
+          start: day
+        now:
+          show: true
+          label: Now
+          color: '#ff0000'
+        yaxis:
+          - min: 0
+            decimals: 1
+        series:
+          - entity: >-
+              event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates
+            name: Today's Rates
+            unit: p
+            type: area
+            curve: stepline
+            opacity: 0.3
+            color: '#00b300'
+            extend_to: false
+            data_generator: |
+              return entity.attributes.rates.map((entry) => {
+                return [new Date(entry.start).getTime(), (entry.value_inc_vat * 100)];
+              });
+          - entity: >-
+              event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates
+            name: Tomorrow's Rates
+            unit: p
+            type: area
+            curve: stepline
+            opacity: 0.3
+            color: '#0080ff'
+            extend_to: false
+            data_generator: >
+              if (!entity || !entity.attributes || !entity.attributes.rates)
+              return [];
+
+              return entity.attributes.rates.map((entry) => {
+                return [new Date(entry.start).getTime(), (entry.value_inc_vat * 100)];
+              });
       - type: history-graph
         title: Power Flow (Last 24h)
         hours_to_show: 24
@@ -284,17 +369,25 @@ views:
               - binary_sensor.enphase_gateway_status
             hours_to_show: 48
       - type: entities
+        title: System Variables
         entities:
+          - type: section
+            label: Core Settings
           - entity: input_number.grid_charge_forecast_threshold
           - entity: input_number.battery_efficiency_rte
+          - type: section
+            label: Summer Fallbacks
           - entity: input_number.summer_evening_usage_kwh
           - entity: input_number.summer_reserve_floor
+          - type: section
+            label: Winter Fallbacks
           - entity: input_boolean.winter_mode
             icon: mdi:snowflake
           - entity: input_number.winter_evening_usage_kwh
           - entity: input_number.winter_reserve_floor
+          - type: section
+            label: Holiday Override
           - entity: input_boolean.holiday_mode
           - entity: input_number.holiday_evening_usage_kwh
           - entity: input_number.holiday_reserve_floor
-        title: System Variables
 

@@ -62,7 +62,7 @@ actions:
         YESTERDAY'S SUMMARY
 
         ☀️ Solar Generated: {{ solar_gen_val | round(2) }} kWh
-        🔋 Peak Avoidance: £{{ "{:.2f}".format(discharge_val * peak_rate_val) }} (Savings from using battery instead of {{ (peak_rate_val * 100) | round(2) }}p grid power)
+        🔋 Peak Avoidance: £{{ "{:.2f}".format((discharge_val - dtg_export_val) * peak_rate_val) }} (Savings from using battery instead of {{ (peak_rate_val * 100) | round(2) }}p grid power)
 
         📥 Import Cost: £{{ "{:.2f}".format(import_cost_val) }} (From {{ import_kwh_val | round(2) }} kWh imported)
         💸 Export Earnings: £{{ "{:.2f}".format(export_earnings_val) }} (From {{ export_kwh_val | round(2) }} kWh exported)
@@ -105,9 +105,11 @@ variables:
   max_soc_val: "{{ states(cfg_sensor_soc) }}"
   net_result: "{{ export_earnings_val - import_cost_val }}"
   peak_rate_val: >
-    {% set import_rates = state_attr(cfg_event_import_today, 'rates') %}  {% set
-    ns = namespace(max_import=31.0) %}  {% if import_rates %}
+    {% set import_rates = state_attr(cfg_event_import_today, 'rates') %}
+    {% set ns = namespace(max_import=0.0) %}
+    {% if import_rates %}
       {% for r in import_rates %}
         {% if r.value_inc_vat > ns.max_import %}{% set ns.max_import = r.value_inc_vat %}{% endif %}
       {% endfor %}
-    {% endif %}  {{ ns.max_import / 100 }}
+    {% endif %}
+    {{ ns.max_import }}

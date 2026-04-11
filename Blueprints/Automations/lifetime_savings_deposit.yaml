@@ -78,7 +78,7 @@ variables:
   # 2. Find the Octopus Day/Peak Rate
   peak_rate: >
     {% set rates = state_attr(event_rates, 'rates') or [] %}
-    {% set ns = namespace(max=0.31) %}
+    {% set ns = namespace(max=0.0) %}
     {% for r in rates %}
       {% if r.value_inc_vat > ns.max %}{% set ns.max = r.value_inc_vat %}{% endif %}
     {% endfor %}

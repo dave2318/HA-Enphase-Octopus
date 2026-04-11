@@ -1,18 +1,21 @@
 ﻿blueprint:
-  name: "Energy: Battery Grid Charge Controller (Dynamic Target)"
+  name: "Energy: Battery Grid Charge Controller (V5.2 Self-Tuning)"
   description: >-
-    Manages CFG mode based on solar forecast and arbitrage profitability.
-    Dynamically calculates a target SOC based on tomorrow's morning Solcast data to prevent solar displacement.
-    Includes a 30-minute midnight shift to align energy data to a single calendar day.
+    Manages CFG mode based on solar forecast.
+    Uses AI-learned morning house load and exact darkness burn rates to calculate the perfect target SOC.
   domain: automation
   input:
     cfg_sensor_soc:
       name: Battery SOC Sensor
-      description: The sensor tracking your physical battery percentage.
       selector:
         entity:
           domain: sensor
           device_class: battery
+    cfg_sensor_morning_avg:
+      name: 7-Day Average Morning Usage Sensor
+      selector:
+        entity:
+          domain: sensor
     cfg_switch_export:
       name: Battery Export Switch (DTG)
       selector:
@@ -28,25 +31,12 @@
       selector:
         entity:
           domain: event
-    cfg_event_import_tomorrow:
-      name: Octopus Import Rates Tomorrow
-      selector:
-        entity:
-          domain: event
-    cfg_event_export_tomorrow:
-      name: Octopus Export Rates Tomorrow
-      selector:
-        entity:
-          domain: event
     cfg_notify_service:
       name: Notification Entity
       default: notify.notify
       selector:
         text:
 
-# ====================================================
-# AUTOMATION LOGIC
-# ====================================================
 mode: single
 
 triggers:
@@ -69,84 +59,60 @@ actions:
           - action: switch.turn_off
             target:
               entity_id: "{{ cfg_switch_charge }}"
-          - action: logbook.log
-            data:
-              name: Grid Charge Controller
-              message: >-
-                Skipped Grid Charge. Forecast: {{ forecast_val }}kWh.
-              entity_id: "{{ cfg_switch_charge }}"
           - action: "{{ cfg_notify_service }}"
             data:
               title: "📊 Daily Energy Audit: CFG Stopped"
               message: |
                 STATUS: GRID CHARGING OFF 
                 REASON: Sun will handle tomorrow's load.
-
-                SOLAR DATA: 
-                - Tomorrow's Forecast: {{ forecast_val }} kWh 
-                - Morning Yield (05:30-11:00): {{ morning_yield | round(2) }} kWh
                 
       - conditions:
           - condition: template
             value_template: "{{ should_charge }}"
         sequence:
-          # 1. Log and Notify the plan immediately at 23:30
-          - action: logbook.log
-            data:
-              name: Grid Charge Controller
-              message: "Grid Charge Approved. Waiting until midnight to start. Target SOC: {{ target_soc }}%."
-              entity_id: "{{ cfg_switch_charge }}"
           - action: "{{ cfg_notify_service }}"
             data:
-              title: "📊 Daily Energy Audit: CFG Scheduled"
+              title: "📊 Daily Energy Audit: CFG Scheduled (V5.2)"
               message: |
                 STATUS: CHARGE APPROVED (Starts at 00:00)
                 TARGET SOC: {{ target_soc }}%
 
                 CALCULATIONS:
                 - Tomorrow's Forecast: {{ forecast_val }} kWh
-                - Morning Yield (05:30-11:00): {{ morning_yield | round(2) }} kWh
-                - Morning Deficit: {{ morning_deficit | round(2) }} kWh
+                - Learned Morning Load: {{ historical_morning_load | round(2) }} kWh
+                - Expected Morning Solar Yield: {{ morning_yield | round(2) }} kWh
+                - Battery Deficit: {{ morning_deficit | round(2) }} kWh
 
-          # 2. WAIT 30 MINUTES SO ALL ENERGY USAGE REGISTERS ON THE NEW CALENDAR DAY
+          # WAIT 30 MINUTES FOR NEW CALENDAR DAY
           - delay: "00:30:00"
 
-          # 3. Turn on the charger at exactly 00:00
+          # Turn on the charger at exactly 00:00
           - action: switch.turn_on
             target:
               entity_id: "{{ cfg_switch_charge }}"
           
-          # 4. Wait until SOC hits Target OR 5.5 hours pass (05:30 AM)
+          # Wait until SOC hits Target OR 5.5 hours pass
           - wait_template: "{{ states(cfg_sensor_soc) | float(0) >= target_soc | float(0) }}"
             timeout: "05:30:00"
             continue_on_timeout: true
             
-          # 5. Turn off the charger cleanly
+          # Turn off the charger cleanly
           - action: switch.turn_off
             target:
-              entity_id: "{{ cfg_switch_charge }}"
-          
-          - action: logbook.log
-            data:
-              name: Grid Charge Controller
-              message: "Finished Grid Charge. Reached Target SOC or Timeout."
               entity_id: "{{ cfg_switch_charge }}"
 
 variables:
   cfg_sensor_soc: !input cfg_sensor_soc
+  cfg_sensor_morning_avg: !input cfg_sensor_morning_avg
   cfg_switch_export: !input cfg_switch_export
   cfg_switch_charge: !input cfg_switch_charge
   cfg_notify_service: !input cfg_notify_service
   cfg_event_import_today: !input cfg_event_import_today
-  cfg_event_import_tomorrow: !input cfg_event_import_tomorrow
-  cfg_event_export_tomorrow: !input cfg_event_export_tomorrow
   
-  sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
   forecast_val: "{{ states('sensor.combined_solar_forecast_tomorrow') | float(0) }}"
   threshold_val: "{{ states('input_number.grid_charge_forecast_threshold') | float(12.0) }}"
   forecast_low: "{{ forecast_val < threshold_val }}"
   
-  # Scan Solcast for morning yield (05:00 to 11:00)
   morning_yield: >
     {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
     {% set ns = namespace(yield=0.0) %}
@@ -160,18 +126,25 @@ variables:
     {% endif %}
     {{ ns.yield }}
 
-  # Calculate deficit assuming ~2.5 kWh morning usage
-  morning_deficit: "{{ [0.0, 2.5 - (morning_yield | float(0))] | max }}"
-  
-  # Calculate Target SOC (100% if bad weather, otherwise current + deficit + 5% buffer)
+  historical_morning_load: >
+    {% set val = states(cfg_sensor_morning_avg) | float(0) %}
+    {{ val if val > 0 else 3.5 }}
+
+  # --- V5.2 DYNAMIC TARGET LOGIC (PATCHED) ---
   target_soc: >
     {% if forecast_low %}
       100
     {% else %}
-      {% set current_soc = states(cfg_sensor_soc) | float(0) %}
-      {% set needed_soc = ((morning_deficit / 5.0) * 100) + 5 %}
-      {{ [100, current_soc + needed_soc] | min | round(0) }}
+      {% set battery_cap_kwh = 5.0 %}
+      {% set hourly_burn = historical_morning_load / 11.0 %}
+      {% set survival_kwh = hourly_burn * 6.0 %}
+      {% set total_morning_deficit = historical_morning_load - morning_yield %}
+      
+      {% set needed_kwh = [survival_kwh, total_morning_deficit, 0.0] | max %}
+      {% set calculated_buffer = ((needed_kwh / battery_cap_kwh) * 100) | int + 5 %}
+      
+      {{ [100, calculated_buffer] | min | round(0) }}
     {% endif %}
 
-  # Let the template sensor dictate the primary GO/NO-GO
+  morning_deficit: "{{ [0.0, historical_morning_load - (morning_yield | float(0))] | max }}"
   should_charge: "{{ is_state('binary_sensor.grid_charge_recommended', 'on') }}"

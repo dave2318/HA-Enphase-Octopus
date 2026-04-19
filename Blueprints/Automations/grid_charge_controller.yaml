@@ -1,5 +1,5 @@
 ﻿blueprint:
-  name: "Energy: Battery Grid Charge Controller (V5.2 Self-Tuning)"
+  name: "Energy: Battery Grid Charge Controller (V6.2 Self-Tuning)"
   description: >-
     Manages CFG mode based on solar forecast.
     Uses AI-learned morning house load and exact darkness burn rates to calculate the perfect target SOC.
@@ -47,104 +47,68 @@ actions:
   - condition: template
     value_template: >-
       {% set dtg = states[cfg_switch_export].last_changed %}  
-      {% set cfg = states[cfg_switch_charge].last_changed %}  
-      {% set dtg_ok = dtg is none or (now() - dtg).total_seconds() > 120 %}  
-      {% set cfg_ok = cfg is none or (now() - cfg).total_seconds() > 120 %}  
-      {{ dtg_ok and cfg_ok }}
+      {{ dtg == None or (now() - dtg).total_seconds() > 60 }}
+
+  - variables:
+      forecast_low: "{{ is_state('binary_sensor.grid_charge_recommended', 'on') }}"
+      
+      morning_yield: >
+        {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
+        {% set ns = namespace(yield=0.0) %}
+        {% if tom_forecast_data %}
+          {% for slot in tom_forecast_data %}
+            {% set slot_dt = as_datetime(slot.period_start) | as_local %}
+            {% if slot_dt >= today_at('05:00') + timedelta(days=1) and slot_dt < today_at('11:00') + timedelta(days=1) %}
+              {% set ns.yield = ns.yield + slot.pv_estimate | float(0) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.yield }}
+
+      historical_morning_load: >
+        {% if is_state('input_boolean.holiday_mode', 'on') %}
+          {{ states('input_number.holiday_morning_usage_kwh') | float(1.5) }}
+        {% else %}
+          {% set val = states(cfg_sensor_morning_avg) | float(0) %}
+          {{ val if val > 0 else 3.5 }}
+        {% endif %}
+
+      target_soc: >
+        {% if forecast_low %}
+          100
+        {% else %}
+          {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
+          {% set hourly_burn = historical_morning_load / 11.0 %}
+          {% set survival_kwh = hourly_burn * 6.0 %}
+          {% set total_morning_deficit = historical_morning_load - morning_yield %}
+          {% set deficit = [0.0, total_morning_deficit] | max %}
+          {% set needed_kwh = [survival_kwh, deficit] | max %}
+          {% set survival_target = (((needed_kwh / battery_cap_kwh) * 100) | int + 5) %}
+          {{ [100, [survival_target, 20]|max]|min | round(0) }}
+        {% endif %}
+
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ not should_charge }}"
+            value_template: "{{ states(cfg_sensor_soc) | float(0) < target_soc | float(0) }}"
         sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: "{{ cfg_switch_charge }}"
-          - action: "{{ cfg_notify_service }}"
-            data:
-              title: "📊 Daily Energy Audit: CFG Stopped"
-              message: |
-                STATUS: GRID CHARGING OFF 
-                REASON: Sun will handle tomorrow's load.
-                
-      - conditions:
-          - condition: template
-            value_template: "{{ should_charge }}"
-        sequence:
-          - action: "{{ cfg_notify_service }}"
-            data:
-              title: "📊 Daily Energy Audit: CFG Scheduled (V5.2)"
-              message: |
-                STATUS: CHARGE APPROVED (Starts at 00:00)
-                TARGET SOC: {{ target_soc }}%
-
-                CALCULATIONS:
-                - Tomorrow's Forecast: {{ forecast_val }} kWh
-                - Learned Morning Load: {{ historical_morning_load | round(2) }} kWh
-                - Expected Morning Solar Yield: {{ morning_yield | round(2) }} kWh
-                - Battery Deficit: {{ morning_deficit | round(2) }} kWh
-
-          # WAIT 30 MINUTES FOR NEW CALENDAR DAY
-          - delay: "00:30:00"
-
-          # Turn on the charger at exactly 00:00
           - action: switch.turn_on
             target:
               entity_id: "{{ cfg_switch_charge }}"
           
-          # Wait until SOC hits Target OR 5.5 hours pass
-          - wait_template: "{{ states(cfg_sensor_soc) | float(0) >= target_soc | float(0) }}"
-            timeout: "05:30:00"
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "🔋 Grid Charging Started"
+              message: >-
+                Target SOC set to {{ target_soc }}%. 
+                (Morning Expectation: {{ historical_morning_load | round(1) }} kWh, Solar Prediction: {{ morning_yield | round(1) }} kWh).
+          
+          # V6.2 Hold at 100 Logic
+          - wait_template: >
+              {{ (states(cfg_sensor_soc) | float(0) >= target_soc | float(0)) and (target_soc | float(0) < 100) }}
+            timeout: "05:29:00"
             continue_on_timeout: true
             
-          # Turn off the charger cleanly
           - action: switch.turn_off
             target:
               entity_id: "{{ cfg_switch_charge }}"
-
-variables:
-  cfg_sensor_soc: !input cfg_sensor_soc
-  cfg_sensor_morning_avg: !input cfg_sensor_morning_avg
-  cfg_switch_export: !input cfg_switch_export
-  cfg_switch_charge: !input cfg_switch_charge
-  cfg_notify_service: !input cfg_notify_service
-  cfg_event_import_today: !input cfg_event_import_today
-  
-  forecast_val: "{{ states('sensor.combined_solar_forecast_tomorrow') | float(0) }}"
-  threshold_val: "{{ states('input_number.grid_charge_forecast_threshold') | float(12.0) }}"
-  forecast_low: "{{ forecast_val < threshold_val }}"
-  
-  morning_yield: >
-    {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
-    {% set ns = namespace(yield=0.0) %}
-    {% if tom_forecast_data %}
-      {% for slot in tom_forecast_data %}
-        {% set slot_dt = as_datetime(slot.period_start) | as_local %}
-        {% if slot_dt >= today_at('05:00') + timedelta(days=1) and slot_dt < today_at('11:00') + timedelta(days=1) %}
-          {% set ns.yield = ns.yield + slot.pv_estimate | float(0) %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-    {{ ns.yield }}
-
-  historical_morning_load: >
-    {% set val = states(cfg_sensor_morning_avg) | float(0) %}
-    {{ val if val > 0 else 3.5 }}
-
-  # --- V5.2 DYNAMIC TARGET LOGIC (PATCHED) ---
-  target_soc: >
-    {% if forecast_low %}
-      100
-    {% else %}
-      {% set battery_cap_kwh = 5.0 %}
-      {% set hourly_burn = historical_morning_load / 11.0 %}
-      {% set survival_kwh = hourly_burn * 6.0 %}
-      {% set total_morning_deficit = historical_morning_load - morning_yield %}
-      
-      {% set needed_kwh = [survival_kwh, total_morning_deficit, 0.0] | max %}
-      {% set calculated_buffer = ((needed_kwh / battery_cap_kwh) * 100) | int + 5 %}
-      
-      {{ [100, calculated_buffer] | min | round(0) }}
-    {% endif %}
-
-  morning_deficit: "{{ [0.0, historical_morning_load - (morning_yield | float(0))] | max }}"
-  should_charge: "{{ is_state('binary_sensor.grid_charge_recommended', 'on') }}"

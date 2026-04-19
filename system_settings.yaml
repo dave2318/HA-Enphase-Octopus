@@ -60,38 +60,29 @@ holiday_evening_usage_kwh:
   step: 0.1
   initial: 2.1
 
-holiday_reserve_floor:
-  name: Minimum SOC Floor (Holiday)
-  icon: mdi:battery-lock-open
-  unit_of_measurement: "%"
-  min: 5
-  max: 50
-  step: 1
-  initial: 10
- 
-lifetime_solar_savings:
-  name: Lifetime Solar Savings
-  icon: mdi:solar-power
-  mode: box
-  unit_of_measurement: "£"
-  min: 0
-  max: 100000
-  step: 0.01
+holiday_morning_usage_kwh:
+  name: Morning Usage Estimate (Holiday)
+  icon: mdi:airplane
+  unit_of_measurement: kWh
+  min: 0.0
+  max: 10.0
+  step: 0.1
+  initial: 1.5
 
-lifetime_battery_savings:
-  name: Lifetime Battery Savings
-  icon: mdi:battery-charging
-  mode: box
-  unit_of_measurement: "£"
-  min: 0
-  max: 100000
-  step: 0.01
+agile_spike_threshold_p:
+  name: Agile Spike Threshold (God Mode)
+  icon: mdi:lightning-bolt
+  unit_of_measurement: "p"
+  min: 25.0
+  max: 100.0
+  step: 1.0
+  initial: 50.0
 
-lifetime_export_earnings:
-  name: Lifetime Export Earnings
-  icon: mdi:cash-fast
-  mode: box
-  unit_of_measurement: "£"
-  min: 0
-  max: 100000
-  step: 0.01
+min_export_margin_p:
+  name: Minimum Export Slot Price
+  icon: mdi:cash-multiple
+  unit_of_measurement: "p"
+  min: 5.0
+  max: 30.0
+  step: 0.5
+  initial: 12.0

@@ -1,21 +1,19 @@
 ﻿# Home Assistant Smart Energy Arbitrage (Octopus + Enphase + Solcast)
-**Current Version:** V6.1 (The Wall Street Edition)
+**Current Version:** V6.2 (The Self-Healing & Hardware Protection Edition)
 
 This repository contains an advanced, highly automated energy management system for Home Assistant. It is designed to optimize battery storage by making dynamic export and grid-charging decisions based on live energy prices, solar forecasts, and historical house consumption.
 
 It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (like Agile, Intelligent, or Flux) with an **Enphase** solar/battery ecosystem.
 
 ## ✨ Key Features
+* **V6.2 The "Hold at 100" Winter Fix:** Cured the "Overnight Leak." During winter, if the overnight target is 100%, the grid charger intentionally hangs in an active state until 05:29. This forces the Enphase inverter into "Bypass Mode," powering the house directly from the cheap grid rather than letting the battery drain before the cheap window ends.
+* **V6.2 Morning Data Poisoning Shield:** The system now subtracts overnight grid charging from the daily consumption sensors. This prevents a "Morning Death Spiral" where the AI incorrectly assumes grid charging was house load, which would previously bloat the 7-day average and cause runaway overcharging.
+* **V6.2 IOG / DTG Collision Shield:** Added a strict interlock to prevent "Selling to Yourself." If Octopus Intelligent Go triggers a cheap EV charge slot, the Smart Peak Export is strictly forbidden from dumping. This ensures you don't waste 35p export power by accidentally feeding it into your EV at 7p.
+* **V6.2 Micro-Cycling Deadbands:** Added a +3% SOC deadband to all export logic. This protects the physical microinverter relays by preventing them from rapidly clicking on and off when late-afternoon solar trickles in right at the export floor line.
+* **V6.2 Dynamic Abstraction:** All major hardcoded variables (Battery Capacity, Agile Price Triggers, Holiday Morning Loads) have been abstracted into UI sliders. The system dynamically reads the actual Envoy battery capacity, meaning you can drop this code into a 5kWh or 10kWh house, and the math will automatically adapt.
 * **V6.1 Wall Street Mode (Energy Arbitrage):** The system actively calculates Round Trip Efficiency (RTE) to find profitable spreads between tonight's import rates and tomorrow's export rates. If `(Tomorrow's Average Export * 0.83) > Tonight's Import`, it overrides self-consumption logic and forces a 100% grid charge to maximize next-day profit.
-* **V6.1 Hardware Wear Protection (12p Floor):** Introduces a hard minimum export price floor. If peak export rates drop below your calculated profitability threshold (default 12.0p/kWh), the system cancels the export, saving the battery from unnecessary hardware degradation and using the free solar to run your house instead.
-* **V5.0 Self-Tuning Morning Charge:** The system observes your house's exact energy usage every morning (including overnight phantom drain) and creates a 7-day rolling average. When calculating overnight grid charges, it scans tomorrow's half-hourly Solcast data (05:30 - 11:00) and calculates a perfect "Target SOC" to cover your specific learned routine while leaving the battery empty enough to soak up afternoon sun.
-* **Smart Peak Export:** Automatically exports battery power to the grid during the most profitable slots (e.g., 16:30-19:00) while ensuring enough reserve is kept to power your home through the evening.
-* **Predictive Evening Reserve:** Learns your actual household consumption over a 7-day rolling average to dynamically calculate exactly how much battery to hold back for the evening, automatically falling back to manual estimates if data is unavailable.
 * **Intelligent Octopus Daytime Rescue:** Actively listens for random, unpredicted daytime cheap slots triggered by your EV. Instead of just blindly taking the slot, it checks your dynamic reserve floor and remaining solar forecast, hijacking the cheap electricity to top up your house battery *only* if the system was struggling.
 * **Hardware Failsafe Watchdog:** A dedicated background automation that guarantees grid charging is forcefully shut down outside of cheap rate windows. This protects your wallet from Home Assistant reboots, cancelled `wait_templates`, or accidental manual overrides.
-* **Holiday Mode:** Maximizes export profits while you are away by dropping the reserve floor, and automatically freezes the 7-day predictive AI from learning your artificially low vacation usage.
-* **Winter / Summer Modes:** Dynamically adjusts battery reserve floors based on the season.
-* **Advanced Visualizations:** Utilizes ApexCharts to draw 48-hour forward-looking step graphs for Octopus pricing, giving a complete visual of tomorrow's energy market.
 
 ## 📋 Prerequisites
 To use this setup, you must have the following custom integrations installed in Home Assistant (available via HACS):
@@ -23,7 +21,7 @@ To use this setup, you must have the following custom integrations installed in 
 2. [Solcast PV Forecast](https://github.com/BJReplay/ha-solcast-solar) (by BJReplay)
 3. Native Enphase Envoy Integration
 4. [hacs_enphase_envoy_cloud](https://github.com/chinedu40/hacs_enphase_envoy_cloud) (by chinedu40)
-5. [ApexCharts Card](https://github.com/RomRider/apexcharts-card) (by RomRider - Required for V6.1 UI Dashboards)
+5. [ApexCharts Card](https://github.com/RomRider/apexcharts-card) (by RomRider - Required for UI Dashboards)
 
 ## ⚙️ Installation & Setup
 
@@ -65,9 +63,11 @@ sensor:
     state_characteristic: mean
     max_age:
       hours: 24
+
+input_number: !include system_settings.yaml
 ```
 
-Copy the `system_settings.yaml` file into your Home Assistant configuration. You can do this by adding `input_number: !include system_settings.yaml` to your `configuration.yaml` file. Restart Home Assistant to generate the UI sliders.
+Copy the `system_settings.yaml` file into your Home Assistant configuration directory. Restart Home Assistant to generate the UI sliders.
 
 ### Step 2: Create the Dashboard UI Helpers
 To ensure the custom dashboard renders perfectly and the seasonal logic works, you need to create three quick UI Helpers.
@@ -119,7 +119,7 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 4. Go to **Settings > Automations & Blueprints > Blueprints**.
 5. Find the new Blueprints and click **Create Automation**. The available blueprints include:
    * **Energy: Smart Export Controller**
-   * **Energy: Battery Grid Charge Controller (V5.0 Self-Tuning)**
+   * **Energy: Battery Grid Charge Controller (V6.2 Self-Tuning)**
    * **Energy: IOG Daytime Rescue Charge**
    * **Energy: CFG Hard Failsafe Watchdog**
    * **Energy: Daily Battery ROI Audit**
@@ -131,39 +131,32 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 7. **⚠️ Important Notification Setup:** In the **Notification Entity** text box, enter the ID of your preferred Home Assistant notifier (e.g., `notify.notify` or `notify.my_email`).
 8. Click **Save**. 
 
-## 🧠 Understanding the Predictive Logic
-The system uses "Array-Based Memory" to observe your behavior over time.
-* **Evening Logic**: At 16:30 and 23:30, the system calculates how much energy you used during the peak/evening period and adds it to a 7-day rolling average. This is used to calculate your "Export Floor".
-* **Morning Logic**: At 11:00 AM daily, the system logs your total consumption since midnight. This captures your base-load, phantom drain, and morning routine. This average is used to calculate the "Target SOC" for your overnight charge, ensuring you have exactly enough power to reach the sunny period of the day without overcharging.
-* **The 23:30 Decision (V6.1)**: Before the cheap overnight rates begin, the brain cross-references your Morning Logic against tomorrow's Solcast data. It then polls the Octopus API for tomorrow's daytime export rates. It decides whether to stay idle, perform a protective "Survival Charge", or execute a 100% "Wall Street Arbitrage" charge based on pure financial mathematics.
+## 🧠 Understanding the Predictive Logic: Two Brains
+The system treats morning charging and evening discharging entirely differently using an asymmetrical memory architecture:
+* **Morning Charge (The 24-Hour Macro):** Uses a rolling 24-hour average to calculate the overnight charge target. This makes the system highly reactive to sudden changes (e.g., weekend laundry days) to ensure you never run out of power the following morning.
+* **Evening Export (The 7-Day Micro):** Uses a rolling 7-day average of specific 16:30-19:00 usage to calculate the export floor. This makes the system highly smoothed and stable, ignoring random one-off spikes (like baking a cake on a Tuesday) to ensure maximum safe Agile profits without draining the battery too low.
 
 ## 🎛️ Dashboard Glossary
 
 ### System Stats & Weather
 * **Calculated Target SOC:** The dynamically generated battery target percentage based on learned usage, solar yields, and arbitrage math. Used to prevent overcharging from the grid.
-* **7-Day Average Morning Usage (Learned):** Your AI-learned morning house load (00:00 to 11:00).
-* **7-Day Average Evening Usage (Learned):** Your AI-learned evening house load used to protect your peak export floor.
+* **7-Day Average Morning/Evening Usage:** Your AI-learned house loads used to protect your baseline requirements.
 * **Morning Solar Yield Forecast:** Solcast's prediction of solar generation specifically between 05:30 and 11:00 AM.
 * **Next Greener Night:** Displays the date and time of your next scheduled Octopus Greener Night so you know when to plug in your EV.
 * **Hard Block (EV/Cheap):** Shows `On` if your EV is charging or grid import rates are exceptionally cheap, safely locking the battery from exporting.
-* **Peak Period:** Shows `On` between 16:30 and 19:00.
 * **Current Dynamic Reserve Target:** The "Daytime Shield" percentage currently protecting your battery from random daytime export spikes.
 * **Peak Export Floor:** The mathematically calculated minimum battery percentage required to survive the evening. During the "Golden Slot", the system will export everything above this line.
-* **Today's Golden Export Slot:** The specific half-hour block with the absolute highest export payout. Will display `None (>12p)` if no slots beat the hardware degradation floor.
-* **Export Rates (Today & Tomorrow):** A 48-hour forward-looking ApexCharts step graph displaying exactly how Octopus is pricing the current and following day.
-* **Generated Today:** Physical solar energy generated so far.
-* **Solar Left Today:** Solcast's prediction of how much solar energy will still be generated before sunset.
-* **Total Expected Today / Tomorrow:** Solcast's daily weather predictions.
-* **Battery Hours Left / Depleted At:** A smoothed estimate of when your battery will hit its reserve limit, based on your house's average load over the last 24 hours.
+* **Today's Golden Export Slot:** The specific half-hour block(s) with the absolute highest export payout. Will display `None` if no slots beat the hardware degradation floor.
 
 ### System Variables
 * **Grid Charge Forecast Threshold:** If tomorrow's Solcast predicted generation is *below* this number (kWh), the system will force a cheap overnight grid charge to 100%.
 * **Battery Round Trip Efficiency (RTE):** The percentage of energy retained during a full charge/discharge cycle (usually ~0.83 or 83% for Enphase). Used to calculate true arbitrage profitability.
-* **Evening Usage Estimate (Winter/Summer):** Acts as a fallback "training wheel." The system natively uses its 7-day AI average to dictate export limits, but falls back to these manual sliders if historical data is unavailable (e.g., fresh install).
+* **Agile Spike Threshold (God Mode):** The price in pence (e.g., 50.0p) that will override all standard peak-window logic and instantly dump battery power at any time of day to capture extreme wholesale spikes.
+* **Minimum Export Slot Price:** The price in pence (e.g., 12.0p) required to even consider dumping power during the evening peak. Prevents unnecessary hardware wear and tear for pennies.
+* **Evening Usage Estimate (Winter/Summer):** Acts as a fallback "training wheel." The system natively uses its 7-day AI average to dictate export limits, but falls back to these manual sliders if historical data is corrupted or unavailable.
 * **Minimum SOC Floor (Winter/Summer):** The absolute lowest percentage the battery is allowed to reach during a forced export. This is your permanent safety net.
-* **Winter Mode:** A manual toggle to switch the system into a more conservative battery retention state for darker, colder months.
 * **Holiday Mode:** A manual toggle that freezes the 7-day AI tracker from learning your vacation usage, while dropping the battery floor to maximize grid export profits while you are away.
-* **Evening Usage Estimate (Holiday):** The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
+* **Morning/Evening Usage Estimate (Holiday):** The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
 * **Minimum SOC Floor (Holiday):** The lowest battery percentage allowed while on vacation. Usually set very low (e.g., 10%) to safely maximize exports.
 
-*** *Disclaimer: Always double-check your own specific Enphase entity IDs when importing the templates!*.
+*** *Disclaimer: Always double-check your own specific Enphase entity IDs when importing the templates!*

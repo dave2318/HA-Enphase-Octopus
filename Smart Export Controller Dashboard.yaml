@@ -4,37 +4,6 @@ views:
     path: smart_export_controller
     icon: mdi:solar-power
     cards:
-      - type: custom:power-flow-card-plus
-        entities:
-          grid:
-            entity: sensor.grid_net_power_kw
-            display_state: both
-            secondary_info:
-              entity: sensor.grid_daily_in_out
-          solar:
-            entity: sensor.solar_production_clean_kw
-            display_state: both
-            secondary_info:
-              entity: sensor.envoy_EnvoyMAC_energy_production_today
-              unit_of_measurement: kWh
-          battery:
-            entity: sensor.envoy_EnvoyMAC_battery
-            state_of_charge: sensor.envoy_EnvoyMAC_battery
-            color_icon: true
-            display_state: state
-            secondary_info:
-              entity: sensor.calculated_battery_daily_discharge
-              unit_of_measurement: kWh
-          home:
-            entity: sensor.house_consumption_clean_kw
-            display_state: both
-            secondary_info:
-              entity: sensor.envoy_EnvoyMAC_energy_consumption_today
-              unit_of_measurement: kWh
-        clickable_entities: true
-        display_zero_lines: true
-        w_to_kw: false
-        kw_decimals: 2
       - type: glance
         title: Financial Summary
         entities:
@@ -241,8 +210,9 @@ views:
             name: Current Dynamic Reserve Target
           - entity: sensor.battery_export_floor
             name: Peak Export Floor
-          - entity: sensor.next_golden_export_slot
+          - entity: sensor.today_s_golden_export_slot
             name: Today's Golden Export Slot
+            icon: mdi:clock-fast
           - entity: sensor.average_evening_usage_7d
             name: 7-Day Avg Evening Usage (Learned)
           - entity: sensor.battery_time_remaining_real_world
@@ -300,7 +270,7 @@ views:
         header:
           show: true
           title: Export Rates (Today & Tomorrow)
-          show_states: true
+          show_states: false
           colorize_states: true
         graph_span: 48h
         span:
@@ -322,6 +292,8 @@ views:
             opacity: 0.3
             color: '#00b300'
             extend_to: false
+            show:
+              legend_value: false
             data_generator: |
               return entity.attributes.rates.map((entry) => {
                 return [new Date(entry.start).getTime(), (entry.value_inc_vat * 100)];
@@ -335,6 +307,8 @@ views:
             opacity: 0.3
             color: '#0080ff'
             extend_to: false
+            show:
+              legend_value: false
             data_generator: >
               if (!entity || !entity.attributes || !entity.attributes.rates)
               return [];
@@ -375,6 +349,8 @@ views:
             label: Core Settings
           - entity: input_number.grid_charge_forecast_threshold
           - entity: input_number.battery_efficiency_rte
+          - entity: input_number.agile_spike_threshold_p
+          - entity: input_number.min_export_margin_p
           - type: section
             label: Summer Fallbacks
           - entity: input_number.summer_evening_usage_kwh
@@ -388,6 +364,7 @@ views:
           - type: section
             label: Holiday Override
           - entity: input_boolean.holiday_mode
+          - entity: input_number.holiday_morning_usage_kwh
           - entity: input_number.holiday_evening_usage_kwh
           - entity: input_number.holiday_reserve_floor
 

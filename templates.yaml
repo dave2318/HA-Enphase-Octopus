@@ -1,4 +1,4 @@
-﻿# templates.yaml - Master Consolidated Version (V5.2 Patched)
+﻿# templates.yaml - Master Consolidated Version (V6.2 Final Architecture)
 
 - sensor:
     - name: "Morning Solar Yield Forecast"
@@ -26,11 +26,15 @@
         {% set threshold = states('input_number.grid_charge_forecast_threshold') | float(12.0) %}
         {% set forecast = states('sensor.combined_solar_forecast_tomorrow') | float(0) %}
         {% set morning_yield = states('sensor.morning_solar_yield_forecast') | float(0) %}
-        {% set battery_cap_kwh = 5.0 %}
+        {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         
         {# --- 1. SURVIVAL MATH (Standard V5.2 Logic) --- #}
-        {% set raw_avg = states('sensor.average_morning_usage_7d') | float(0) %}
-        {% set historical_morning_load = raw_avg if raw_avg > 0 else 3.5 %}
+        {% if is_state('input_boolean.holiday_mode', 'on') %}
+          {% set historical_morning_load = states('input_number.holiday_morning_usage_kwh') | float(1.5) %}
+        {% else %}
+          {% set raw_avg = states('sensor.average_morning_usage_7d') | float(0) %}
+          {% set historical_morning_load = raw_avg if raw_avg > 0 else 3.5 %}
+        {% endif %}
         
         {% set hourly_burn = historical_morning_load / 11.0 %}
         {% set survival_kwh = hourly_burn * 6.0 %}
@@ -42,12 +46,9 @@
 
         {# --- 2. ARBITRAGE MATH (V6.0 Wall Street Upgrade) --- #}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
-        
-        {# Get current import rate (At 23:30, this is your cheap window starting rate) #}
         {% set raw_imp = states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate') | float(0) %}
         {% set import_rate = (raw_imp * 100) if raw_imp < 1.0 else raw_imp %}
 
-        {# Get tomorrow's daylight export rates (09:00 - 16:00) #}
         {% set export_event = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates', 'rates') or [] %}
         {% set current_event = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
         {% set rates = export_event if export_event | length > 0 else current_event %}
@@ -64,8 +65,6 @@
         {% endfor %}
         
         {% set avg_day_export = (ns.total / ns.count) if ns.count > 0 else 0 %}
-        
-        {# The Ultimate Question: Does buying tonight yield profit tomorrow? #}
         {% set is_profitable = (avg_day_export * rte) > import_rate %}
 
         {# --- 3. THE FINAL DECISION --- #}
@@ -114,7 +113,32 @@
         
         {% set gap = (evening_req_kwh - solar_remaining) %}
         {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
-        {{ [reserve_floor, [needed_soc, 95]|min]|max | round(0) }}
+        {% set standard_floor = [reserve_floor, [needed_soc, 95]|min]|max | round(0) %}
+
+        {# --- V6.2: GOD MODE & SPIKE OVERRIDE --- #}
+        {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+        {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
+        {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
+
+        {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
+        {% set ns = namespace(upcoming_spike=false) %}
+        
+        {% for r in rates %}
+          {% set val = r.value_inc_vat %}
+          {% set rate_p = (val * 100) if val < 1.0 else val %}
+          {% set start_dt = as_datetime(r.start) | as_local %}
+          {% if start_dt.time() >= strptime('16:30', '%H:%M').time() and start_dt.time() < strptime('19:00', '%H:%M').time() %}
+            {% if rate_p >= spike_threshold %}
+              {% set ns.upcoming_spike = true %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+
+        {% if current_rate_p >= spike_threshold or ns.upcoming_spike %}
+          {{ reserve_floor }} 
+        {% else %}
+          {{ standard_floor }} 
+        {% endif %}
         
     - name: "Dynamic Reserve"
       unique_id: dynamic_reserve_calc
@@ -158,7 +182,7 @@
       unit_of_measurement: "h"
       icon: mdi:timer-sand
       state: >
-        {% set capacity = 5.0 %}
+        {% set capacity = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) / 100 %}
         {% set reserve = 0.06 %}
         {% set rte = states('input_number.battery_efficiency_rte') | float(0.83) %}
@@ -170,14 +194,6 @@
         {% else %} 
           0.0 
         {% endif %}
-
-    - name: "Battery Depleted At"
-      unique_id: battery_depleted_at
-      icon: mdi:clock-end
-      state: >
-        {% set hours = states('sensor.battery_time_remaining_real_world') | float(0) %}
-        {% if hours > 0 %} {{ (now() + timedelta(hours=hours)).strftime('%H:%M') }}
-        {% else %} "At Reserve" {% endif %}
 
     - name: "Battery Depleted At"
       unique_id: battery_depleted_at
@@ -278,13 +294,18 @@
           {% endfor %}
         {% endif %}
         
-        {% set raw_avg = states('sensor.average_morning_usage_7d') | float(0) %}
-        {% set historical_morning_load = raw_avg if raw_avg > 0 else 3.5 %}
+        {% if is_state('input_boolean.holiday_mode', 'on') %}
+          {% set historical_morning_load = states('input_number.holiday_morning_usage_kwh') | float(1.5) %}
+        {% else %}
+          {% set raw_avg = states('sensor.average_morning_usage_7d') | float(0) %}
+          {% set historical_morning_load = raw_avg if raw_avg > 0 else 3.5 %}
+        {% endif %}
+        
         {% set morning_deficit = ns_solar.morning_yield < historical_morning_load %}
         
         {% set hourly_burn = historical_morning_load / 11.0 %}
         {% set survival_kwh = hourly_burn * 6.0 %}
-        {% set battery_cap_kwh = 5.0 %}
+        {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set survival_floor = ((survival_kwh / battery_cap_kwh) * 100) | int + 5 %}
         {% set current_soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
         {% set needs_survival_charge = current_soc < survival_floor %}
@@ -306,49 +327,63 @@
     - name: "Smart Peak Export Active"
       unique_id: smart_peak_export_active
       state: >
-        {% set t = now().time() %}
-        {% if t < strptime('16:30', '%H:%M').time() or t >= strptime('19:00', '%H:%M').time() %}
+        {# --- 0. IOG / DTG COLLISION SHIELD --- #}
+        {% if is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching', 'on') %}
           false
         {% else %}
+          
+          {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+          {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
+          {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
+          
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
           {% set floor = states('sensor.battery_export_floor') | float(0) %}
-          {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
-          {% set export_volume = ((soc - floor) / 100) * battery_cap_kwh %}
-          {% set slots_needed = 2 if export_volume > 1.6 else 1 %}
-
-          {# --- NEW: Minimum Export Price Floor --- #}
-          {% set min_export_price = 12.0 %}
-
-          {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
-          {% set peak_rates = namespace(data=[]) %}
-          {% for r in rates %}
-            {% set start_dt = as_datetime(r.start) | as_local %}
-            {% set val = r.value_inc_vat %}
-            {% set rate_p = (val * 100) if val < 1.0 else val %}
-            
-            {# Only consider slots in the peak window that beat the minimum price floor! #}
-            {% if start_dt.time() >= strptime('16:30', '%H:%M').time() and start_dt.time() < strptime('19:00', '%H:%M').time() %}
-              {% if rate_p >= min_export_price %}
-                {% set peak_rates.data = peak_rates.data + [{'start': start_dt, 'end': as_datetime(r.end) | as_local, 'rate': rate_p}] %}
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-
-          {% set sorted_slots = peak_rates.data | sort(attribute='rate', reverse=true) %}
-          {% set target_slots = sorted_slots[:slots_needed] %}
           
-          {% set ns = namespace(active=false) %}
-          {% for slot in target_slots %}
-            {% if now() >= slot.start and now() < slot.end %}
-              {% set ns.active = true %}
-            {% endif %}
-          {% endfor %}
-
-          {# Failsafe: Only force the 18:30 trigger if there were actually profitable slots today #}
-          {% set has_profitable_slots = peak_rates.data | length > 0 %}
-          {% set last_chance = t >= strptime('18:30', '%H:%M').time() and has_profitable_slots %}
+          {# --- 1. GOD MODE OVERRIDE (Any time of day) --- #}
+          {% if current_rate_p >= spike_threshold %}
+            {{ soc > (floor + 3) }}
           
-          {{ (ns.active or last_chance) and soc > (floor + 1) }}
+          {# --- 2. STANDARD PEAK WINDOW (16:30 - 19:00) --- #}
+          {% else %}
+            {% set t = now().time() %}
+            {% if t < strptime('16:30', '%H:%M').time() or t >= strptime('19:00', '%H:%M').time() %}
+              false
+            {% else %}
+              {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
+              {% set export_volume = ((soc - floor) / 100) * battery_cap_kwh %}
+              {% set slots_needed = 3 if export_volume > 2.8 else (2 if export_volume > 1.4 else 1) %}
+              {% set min_export_price = states('input_number.min_export_margin_p') | float(12.0) %}
+
+              {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
+              {% set peak_rates = namespace(data=[]) %}
+              {% for r in rates %}
+                {% set start_dt = as_datetime(r.start) | as_local %}
+                {% set val = r.value_inc_vat %}
+                {% set rate_p = (val * 100) if val < 1.0 else val %}
+                {% if start_dt.time() >= strptime('16:30', '%H:%M').time() and start_dt.time() < strptime('19:00', '%H:%M').time() %}
+                  {% if rate_p >= min_export_price %}
+                    {% set peak_rates.data = peak_rates.data + [{'start': start_dt, 'end': as_datetime(r.end) | as_local, 'rate': rate_p}] %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+
+              {% set sorted_slots = peak_rates.data | sort(attribute='rate', reverse=true) %}
+              {% set target_slots = sorted_slots[:slots_needed] %}
+              
+              {% set ns = namespace(active=false) %}
+              {% for slot in target_slots %}
+                {% if now() >= slot.start and now() < slot.end %}
+                  {% set ns.active = true %}
+                {% endif %}
+              {% endfor %}
+
+              {% set has_profitable_slots = peak_rates.data | length > 0 %}
+              {% set last_chance = t >= strptime('18:30', '%H:%M').time() and has_profitable_slots %}
+              
+              {{ (ns.active or last_chance) and soc > (floor + 3) }}
+            {% endif %}
+          {% endif %}
+
         {% endif %}
 
     - name: "Hard Block Active"
@@ -542,19 +577,20 @@
     - platform: state
       entity_id: sensor.envoy_EnvoyMAC_battery
   sensor:
-    - name: "Next Golden Export Slot"
-      unique_id: next_golden_export_slot
+    - name: "Today's Golden Export Slot"
+      unique_id: todays_golden_export_slot
       icon: mdi:star-clock
       state: >
         {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
         {% set floor = states('sensor.battery_export_floor') | float(0) %}
-        {% set battery_cap_kwh = 5.0 %}
+        {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         {% set export_volume = ((soc - floor) / 100) * battery_cap_kwh %}
-        {% set slots_needed = 2 if export_volume > 1.6 else 1 %}
+        
+        {# V6.2 PATCH: Perfectly matched to the Brain's volume math #}
+        {% set slots_needed = 3 if export_volume > 2.8 else (2 if export_volume > 1.4 else 1) %}
 
         {% set ns = namespace(peak_data=[]) %}
-        {# --- Match the Brain's Price Floor --- #}
-        {% set min_export_price = 12.0 %}
+        {% set min_export_price = states('input_number.min_export_margin_p') | float(12.0) %}
         
         {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
         
@@ -564,7 +600,6 @@
           {% set rate_p = (val * 100) if val < 1.0 else val %}
           
           {% if start.time() >= strptime('16:30', '%H:%M').time() and start.time() < strptime('19:00', '%H:%M').time() %}
-             {# Only add to the display if it beats the 12p floor! #}
              {% if rate_p >= min_export_price %}
                {% set ns.peak_data = ns.peak_data + [{'time': start.strftime('%H:%M'), 'rate': rate_p}] %}
              {% endif %}
@@ -574,14 +609,11 @@
         {% set sorted_slots = ns.peak_data | sort(attribute='rate', reverse=true) %}
         
         {% if sorted_slots | length > 0 %}
-          {% if slots_needed == 2 and sorted_slots | length >= 2 %}
-            {% set top_two = sorted_slots[:2] | sort(attribute='time') %}
-            {{ top_two[0].time }} & {{ top_two[1].time }}
-          {% else %}
-            {{ sorted_slots[0].time }}
-          {% endif %}
+          {# Dynamically display 1, 2, or 3 slots separated by '&' #}
+          {% set display_slots = sorted_slots[:slots_needed] | sort(attribute='time') %}
+          {{ display_slots | map(attribute='time') | join(' & ') }}
         {% else %}
-          None (>12p)
+          None (>{{ min_export_price }}p)
         {% endif %}
 
 - trigger:
@@ -700,10 +732,12 @@
           {{ this.state | default(0) }}
         {% else %}
           {% set current = raw_current | float(0) %}
+          {% set grid_charge = states('sensor.grid_battery_daily_charge') | float(0) %}
+          {% set true_load = current - grid_charge %}
           {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
           
-          {% if current > 0 and current < 20 and not is_holiday %}
-            {{ current | round(2) }}
+          {% if true_load > 0 and true_load < 20 and not is_holiday %}
+            {{ true_load | round(2) }}
           {% else %}
             {{ this.state | default(0) }}
           {% endif %}
@@ -714,12 +748,14 @@
           {% if raw_current in ['unknown', 'unavailable'] %}
             {{ this.attributes.history_array | default([]) }}
           {% else %}
-            {% set current = raw_current | float(0) | round(2) %}
+            {% set current = raw_current | float(0) %}
+            {% set grid_charge = states('sensor.grid_battery_daily_charge') | float(0) %}
+            {% set true_load = (current - grid_charge) | round(2) %}
             {% set hist = this.attributes.history_array | default([]) %}
             {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
             
-            {% if current > 0 and current < 20 and not is_holiday %}
-              {{ (hist + [current])[-7:] }}
+            {% if true_load > 0 and true_load < 20 and not is_holiday %}
+              {{ (hist + [true_load])[-7:] }}
             {% else %}
               {{ hist }}
             {% endif %}

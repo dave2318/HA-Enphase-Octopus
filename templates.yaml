@@ -1,17 +1,40 @@
 ﻿# templates.yaml - Master Consolidated Version (V6.2 Final Architecture)
 
 - sensor:
+    - name: "Daily Grid Battery Charge Cost"
+      unique_id: daily_grid_battery_charge_cost
+      unit_of_measurement: "£"
+      icon: mdi:currency-gbp
+      state: >
+        {# Pulls the daily kWh imported by the battery #}
+        {% set daily_kwh = states('sensor.grid_battery_daily_charge') | float(0) %}
+        {# Multiplies by 3.49p (£0.0349) and rounds to 2 decimal places #}
+        {{ (daily_kwh * 0.0349) | round(2) }}
+
+    - name: "Monthly Grid Battery Charge Cost"
+      unique_id: monthly_grid_battery_charge_cost
+      unit_of_measurement: "£"
+      icon: mdi:currency-gbp
+      state: >
+        {# Pulls the monthly aggregated kWh imported by the battery #}
+        {% set monthly_kwh = states('sensor.monthly_grid_battery_charge') | float(0) %}
+        {# Multiplies by 3.49p (£0.0349) and rounds to 2 decimal places #}
+        {{ (monthly_kwh * 0.0349) | round(2) }}
+        
     - name: "Morning Solar Yield Forecast"
       unique_id: morning_solar_yield_forecast
       unit_of_measurement: "kWh"
       icon: mdi:weather-sunset-up
       state: >
-        {% set tom_forecast_data = state_attr('sensor.solcast_pv_forecast_forecast_tomorrow', 'detailedForecast') %}
+        {% set is_am = now().hour < 12 %}
+        {% set target_sensor = 'sensor.solcast_pv_forecast_forecast_today' if is_am else 'sensor.solcast_pv_forecast_forecast_tomorrow' %}
+        {% set tom_forecast_data = state_attr(target_sensor, 'detailedForecast') %}
+        {% set offset = 0 if is_am else 1 %}
         {% set ns = namespace(yield=0.0) %}
         {% if tom_forecast_data %}
           {% for slot in tom_forecast_data %}
             {% set slot_dt = as_datetime(slot.period_start) | as_local %}
-            {% if slot_dt >= today_at('05:00') + timedelta(days=1) and slot_dt < today_at('11:00') + timedelta(days=1) %}
+            {% if slot_dt >= today_at('05:00') + timedelta(days=offset) and slot_dt < today_at('11:00') + timedelta(days=offset) %}
               {% set ns.yield = ns.yield + slot.pv_estimate | float(0) %}
             {% endif %}
           {% endfor %}
@@ -23,8 +46,10 @@
       unit_of_measurement: "%"
       icon: mdi:finance
       state: >
+        {% set is_am = now().hour < 12 %}
+        {% set full_day_sensor = 'sensor.combined_solar_forecast_today' if is_am else 'sensor.combined_solar_forecast_tomorrow' %}
         {% set threshold = states('input_number.grid_charge_forecast_threshold') | float(12.0) %}
-        {% set forecast = states('sensor.combined_solar_forecast_tomorrow') | float(0) %}
+        {% set forecast = states(full_day_sensor) | float(0) %}
         {% set morning_yield = states('sensor.morning_solar_yield_forecast') | float(0) %}
         {% set battery_cap_kwh = states('sensor.envoy_EnvoyMAC_battery_capacity') | float(5000) / 1000 %}
         
@@ -670,7 +695,10 @@
           {% else %}
             {% set current = raw_current | float(0) %}
             {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
-            {% set diff = current - start_val %}
+            {% set dtg_export = states('sensor.today_peak_dtg_export') | float(0) %}
+            
+            {# V6.4 Fix: Add the DTG export back to counter Enphase's negative CT math #}
+            {% set diff = (current - start_val) + dtg_export %}
             {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
             
             {% if diff > 0 and start_val > 0 and diff < 20 and not is_holiday %}
@@ -691,7 +719,8 @@
             {% else %}
               {% set current = raw_current | float(0) %}
               {% set start_val = states('sensor.evening_consumption_baseline') | float(0) %}
-              {% set diff = (current - start_val) | round(2) %}
+              {% set dtg_export = states('sensor.today_peak_dtg_export') | float(0) %}
+              {% set diff = ((current - start_val) + dtg_export) | round(2) %}
               {% set hist = this.attributes.history_array | default([]) %}
               {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
               
@@ -732,8 +761,9 @@
           {{ this.state | default(0) }}
         {% else %}
           {% set current = raw_current | float(0) %}
-          {% set grid_charge = states('sensor.grid_battery_daily_charge') | float(0) %}
-          {% set true_load = current - grid_charge %}
+          {# V6.4 Fix: Subtract ALL battery charging (solar + grid) to isolate true house load #}
+          {% set total_charge = states('sensor.calculated_battery_daily_charge') | float(0) %}
+          {% set true_load = current - total_charge %}
           {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
           
           {% if true_load > 0 and true_load < 20 and not is_holiday %}
@@ -749,8 +779,8 @@
             {{ this.attributes.history_array | default([]) }}
           {% else %}
             {% set current = raw_current | float(0) %}
-            {% set grid_charge = states('sensor.grid_battery_daily_charge') | float(0) %}
-            {% set true_load = (current - grid_charge) | round(2) %}
+            {% set total_charge = states('sensor.calculated_battery_daily_charge') | float(0) %}
+            {% set true_load = (current - total_charge) | round(2) %}
             {% set hist = this.attributes.history_array | default([]) %}
             {% set is_holiday = is_state('input_boolean.holiday_mode', 'on') %}
             

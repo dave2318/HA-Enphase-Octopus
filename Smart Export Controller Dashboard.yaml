@@ -13,6 +13,7 @@ views:
           - entity: >-
               sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate
             name: Export Rate
+          - entity: sensor.monthly_grid_battery_charge_cost
           - entity: sensor.export_profitability
             name: Net Profit/kWh
           - entity: sensor.today_export_profit_accumulative

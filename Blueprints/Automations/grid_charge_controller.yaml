@@ -1,7 +1,8 @@
 ﻿blueprint:
-  name: "Energy: Battery Grid Charge Controller (V6.2 Self-Tuning)"
+  name: "Energy: Battery Grid Charge Controller (V6.7 Smart Briefings)"
   description: >-
     Manages CFG mode based on your master Calculated Target SOC sensor.
+    Includes time-aware Solcast avoidance, strict float math, and dynamic Smart Briefing emails.
   domain: automation
   input:
     cfg_sensor_soc:
@@ -34,25 +35,49 @@
 
 mode: single
 
+variables:
+  cfg_sensor_soc: !input cfg_sensor_soc
+  cfg_sensor_target_soc: !input cfg_sensor_target_soc
+  cfg_switch_export: !input cfg_switch_export
+  cfg_switch_charge: !input cfg_switch_charge
+  cfg_notify_service: !input cfg_notify_service
+
 triggers:
-  # V6.2: Bulletproof midnight trigger for clean daily billing metrics
-  - at: "00:00:00"
+  - at: "00:02:00"
     trigger: time
 
 actions:
-  - condition: template
-    value_template: >-
-      {% set dtg = states[cfg_switch_export].last_changed %}  
-      {{ dtg == None or (now() - dtg).total_seconds() > 60 }}
-
   - variables:
-      # Reads directly from your brilliant templates.yaml Brain!
+      # Pull live data
       target_soc: "{{ states(cfg_sensor_target_soc) | float(0) }}"
+      current_soc: "{{ states(cfg_sensor_soc) | float(0) }}"
+      
+      # Hardware protection math
+      dtg_safe: >-
+        {% set dtg = states[cfg_switch_export].last_changed %}
+        {{ dtg == None or (now() - dtg).total_seconds() > 60 }}
 
   - choose:
+      # ==========================================
+      # SCENARIO 1: HARDWARE RELAY PROTECTION
+      # ==========================================
       - conditions:
           - condition: template
-            value_template: "{{ states(cfg_sensor_soc) | float(0) < target_soc }}"
+            value_template: "{{ dtg_safe | string | lower == 'false' }}"
+        sequence:
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "⚠️ Grid Charge Aborted: Relay Cooldown"
+              message: >-
+                The overnight battery charge was aborted because the Export Switch (DTG) was toggled in the last 60 seconds.
+                This hardware interlock prevents the inverter relays from dangerous rapid-cycling.
+
+      # ==========================================
+      # SCENARIO 2: CHARGE REQUIRED (SMART BRIEFING)
+      # ==========================================
+      - conditions:
+          - condition: template
+            value_template: "{{ current_soc | float(0) < target_soc | float(0) }}"
         sequence:
           - action: switch.turn_on
             target:
@@ -62,14 +87,52 @@ actions:
             data:
               title: "🔋 Grid Charging Started"
               message: >-
-                Target SOC set to {{ target_soc }}% by the master prediction engine.
+                The AI Prediction Engine has commanded an overnight grid charge.
+                
+                📊 Stats:
+                • Current SOC: {{ current_soc | float(0) | round(0) }}%
+                • Target SOC: {{ target_soc | float(0) | round(0) }}%
+                
+                {% if target_soc | float(0) == 100 %}
+                📈 Strategy: Maximum Capacity Override
+                The system has detected either a highly profitable Wall Street Arbitrage opportunity for tomorrow, or a severe Bad Weather deficit. 
+                
+                ⏱️ Turn-Off Prediction:
+                To prevent your house baseload from draining the battery overnight, the charger will INTENTIONALLY STAY ON. It will hold the battery perfectly at 100% until the failsafe timeout cuts power at exactly 05:27 AM.
+                {% else %}
+                🛡️ Strategy: Survival Baseline Mode
+                The system is purchasing just enough cheap power to get your family through the dark hours until tomorrow's solar generation kicks in.
+                
+                ⏱️ Turn-Off Prediction:
+                The system will actively monitor the battery level. It will automatically cut the charger off the exact second it reaches {{ target_soc | float(0) | round(0) }}%.
+                {% endif %}
           
-          # V6.2 Hold at 100 Logic (Prevents Winter Leak)
+          # Hold at 100 Logic (Prevents Winter Leak)
           - wait_template: >
-              {{ (states(cfg_sensor_soc) | float(0) >= target_soc) and (target_soc < 100) }}
-            timeout: "05:29:00"
+              {{ (states(cfg_sensor_soc) | float(0) >= target_soc | float(0)) and (target_soc | float(0) < 100) }}
+            timeout: "05:27:00"
             continue_on_timeout: true
             
           - action: switch.turn_off
             target:
               entity_id: "{{ cfg_switch_charge }}"
+
+      # ==========================================
+      # SCENARIO 3: STAYING IDLE (SMART BRIEFING)
+      # ==========================================
+      - conditions:
+          - condition: template
+            value_template: "{{ current_soc | float(0) >= target_soc | float(0) }}"
+        sequence:
+          - action: "{{ cfg_notify_service }}"
+            data:
+              title: "💤 Grid Charge: Staying Idle"
+              message: >-
+                The battery will NOT charge from the grid tonight.
+                
+                📊 Stats:
+                • Current SOC: {{ current_soc | float(0) | round(0) }}%
+                • Target SOC: {{ target_soc | float(0) | round(0) }}%
+                
+                🛡️ Strategy: Coasting on Stored Power
+                Your current battery level is already higher than the AI's calculated survival baseline. The system will coast on this stored power until tomorrow's solar generation takes over, saving you from buying unnecessary grid energy.

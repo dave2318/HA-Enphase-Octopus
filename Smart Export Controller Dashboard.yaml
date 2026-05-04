@@ -4,7 +4,10 @@ views:
     path: smart_export_controller
     icon: mdi:solar-power
     cards:
-      - type: glance
+      - show_name: true
+        show_icon: true
+        show_state: true
+        type: glance
         title: Financial Summary
         entities:
           - entity: >-
@@ -16,6 +19,7 @@ views:
           - entity: sensor.monthly_grid_battery_charge_cost
           - entity: sensor.export_profitability
             name: Net Profit/kWh
+          - entity: sensor.grid_energy_export_today
           - entity: sensor.today_export_profit_accumulative
             name: Earned Today
           - entity: sensor.today_peak_dtg_profit
@@ -23,6 +27,7 @@ views:
           - entity: sensor.today_peak_dtg_export
             name: Peak Dump Vol.
           - entity: input_number.lifetime_solar_savings
+        state_color: true
       - type: horizontal-stack
         cards:
           - type: gauge
@@ -50,28 +55,30 @@ views:
         title: Next Expected Behaviour
         content: >
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-          {% set floor = states('sensor.battery_export_floor') | float(0) %}  {%
-          set reserve = states('sensor.dynamic_reserve') | float(0) %}  {% set
-          winter = is_state('input_boolean.winter_mode', 'on') %}  {% set
-          holiday = is_state('input_boolean.holiday_mode', 'on') %}  {% set
+          {% set reserve = states('sensor.dynamic_reserve') | float(0) %}   {%
+          set winter = is_state('input_boolean.winter_mode', 'on') %}   {% set
+          holiday = is_state('input_boolean.holiday_mode', 'on') %}   {% set
           is_profitable = states('sensor.export_profitability') | float(0) > 0
-          %}  {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+          %}   {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
           {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
-          'on') %}
-
-          {# NEW: Detect if the Rescue Charge is running #} {% set rescue =
-          is_state('switch.enphase_cfg_mode', 'on') and
+          'on') %} {% set rescue = is_state('switch.enphase_cfg_mode', 'on') and
           is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching',
           'on') and (now().hour >= 5 and now().hour < 23) %}
 
-          **Current Strategy:** {% if holiday %}
+          {# NEW: DFS Saving Session Tracker #} {% set dfs =
+          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
+          'on') %}
+
+          **Current Strategy:**  {% if dfs %}
+            🔥 **SAVING SESSION:** God Mode active! Maximizing dump to grid for premium Octoplus credit!
+          {% elif holiday %}
             ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
           {% elif rescue %}
             🚑 **IOG RESCUE:** Octopus triggered a cheap daytime slot! Topping up a low battery.
           {% elif car %}
             🚗 **BLOCK:** EV is charging or in cheap window.
-          {% elif winter and is_profitable and soc < floor %}
-            ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter floor ({{floor}}%).
+          {% elif winter and is_profitable and soc < reserve %}
+            ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter reserve ({{reserve}}%).
           {% elif soc < reserve and not is_profitable and not smart_peak %}
             🔋 **HOLDING:** SOC {{soc}}% is below Reserve ({{reserve}}%).
           {% elif is_profitable or smart_peak %}
@@ -81,7 +88,7 @@ views:
           {% endif %}
       - type: markdown
         title: 🚦 Export Logic Checklist
-        content: >-
+        content: >
           {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
 
           {% set floor = states('sensor.battery_export_floor') | float(0) %} 
@@ -100,22 +107,37 @@ views:
           {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
           'on') %}
 
+          {% set dfs =
+          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
+          'on') %}
 
-          **Blocks** - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} 
+
+          **Blocks** 
+
+          - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} 
 
           - Winter Safety Check {{ '✅' if not winter or holiday or (winter and
-          soc > floor) or smart_peak else '⚠️' }}
+          soc > floor) or smart_peak or dfs else '⚠️' }}
 
 
-          **Triggers** - Profit Opportunity ({{ profit_val }}p) {{ '✅' if
-          profit_val > 0 else '❌' }} 
+          **Triggers** 
+
+          - Saving Session (DFS) Active {{ '🔥' if dfs else '❌' }}
+
+          - Profit Opportunity ({{ profit_val }}p) {{ '✅' if profit_val > 0 else
+          '❌' }} 
 
           - Smart Peak Surplus {{ '✅' if smart_peak else '❌' }}
 
 
           --- 
 
-          **System Verdict:** {% if car %}
+
+          **System Verdict:** 
+
+          {% if dfs %}
+            🔥 SAVING SESSION (GOD MODE)
+          {% elif car %}
             🛑 BLOCKED (EV/CHEAP)
           {% elif holiday and profit_val > 0 %}
             ✈️ HOLIDAY EXPORT
@@ -205,6 +227,8 @@ views:
           - entity: binary_sensor.in_peak_window
             name: Peak Period
           - entity: sensor.next_greener_night
+          - entity: sensor.next_saving_session
+            name: Next Octoplus Saving Session
           - type: section
             label: Evening & Export Strategy
           - entity: sensor.dynamic_reserve

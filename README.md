@@ -1,19 +1,18 @@
 ﻿# Home Assistant Smart Energy Arbitrage (Octopus + Enphase + Solcast)
-**Current Version:** V6.2 (The Self-Healing & Hardware Protection Edition)
+**Current Version:** V6.8 (The Octoplus DFS God Mode Edition)
 
 This repository contains an advanced, highly automated energy management system for Home Assistant. It is designed to optimize battery storage by making dynamic export and grid-charging decisions based on live energy prices, solar forecasts, and historical house consumption.
 
 It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (like Agile, Intelligent, or Flux) with an **Enphase** solar/battery ecosystem.
 
 ## ✨ Key Features
+* **V6.8 Octoplus DFS God Mode:** The system now natively tracks Demand Flexibility Service (Saving Sessions). If a session triggers, it immediately suspends standard arbitrage limits and safely dumps maximum power into the grid, capturing premium £3/kWh credit rates. 
+* **V6.8 Pure AI Failsafes:** Grid charging is now fully commanded by the `Calculated Target SOC` AI logic rather than independent thresholds. It dynamically calculates exactly how many kWh you need to survive until the sun rises, charging only what is strictly necessary.
 * **V6.2 The "Hold at 100" Winter Fix:** Cured the "Overnight Leak." During winter, if the overnight target is 100%, the grid charger intentionally hangs in an active state until 05:29. This forces the Enphase inverter into "Bypass Mode," powering the house directly from the cheap grid rather than letting the battery drain before the cheap window ends.
 * **V6.2 Morning Data Poisoning Shield:** The system now subtracts overnight grid charging from the daily consumption sensors. This prevents a "Morning Death Spiral" where the AI incorrectly assumes grid charging was house load, which would previously bloat the 7-day average and cause runaway overcharging.
 * **V6.2 IOG / DTG Collision Shield:** Added a strict interlock to prevent "Selling to Yourself." If Octopus Intelligent Go triggers a cheap EV charge slot, the Smart Peak Export is strictly forbidden from dumping. This ensures you don't waste 35p export power by accidentally feeding it into your EV at 7p.
-* **V6.2 Micro-Cycling Deadbands:** Added a +3% SOC deadband to all export logic. This protects the physical microinverter relays by preventing them from rapidly clicking on and off when late-afternoon solar trickles in right at the export floor line.
-* **V6.2 Dynamic Abstraction:** All major hardcoded variables (Battery Capacity, Agile Price Triggers, Holiday Morning Loads) have been abstracted into UI sliders. The system dynamically reads the actual Envoy battery capacity, meaning you can drop this code into a 5kWh or 10kWh house, and the math will automatically adapt.
 * **V6.1 Wall Street Mode (Energy Arbitrage):** The system actively calculates Round Trip Efficiency (RTE) to find profitable spreads between tonight's import rates and tomorrow's export rates. If `(Tomorrow's Average Export * 0.83) > Tonight's Import`, it overrides self-consumption logic and forces a 100% grid charge to maximize next-day profit.
 * **Intelligent Octopus Daytime Rescue:** Actively listens for random, unpredicted daytime cheap slots triggered by your EV. Instead of just blindly taking the slot, it checks your dynamic reserve floor and remaining solar forecast, hijacking the cheap electricity to top up your house battery *only* if the system was struggling.
-* **Hardware Failsafe Watchdog:** A dedicated background automation that guarantees grid charging is forcefully shut down outside of cheap rate windows. This protects your wallet from Home Assistant reboots, cancelled `wait_templates`, or accidental manual overrides.
 
 ## 📋 Prerequisites
 To use this setup, you must have the following custom integrations installed in Home Assistant (available via HACS):
@@ -119,13 +118,14 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
 4. Go to **Settings > Automations & Blueprints > Blueprints**.
 5. Find the new Blueprints and click **Create Automation**. The available blueprints include:
    * **Energy: Smart Export Controller**
-   * **Energy: Battery Grid Charge Controller (V6.2 Self-Tuning)**
+   * **Energy: Battery Grid Charge Controller (V6.7 Smart Briefings)**
    * **Energy: IOG Daytime Rescue Charge**
    * **Energy: CFG Hard Failsafe Watchdog**
    * **Energy: Daily Battery ROI Audit**
    * **Energy: Lifetime Savings Nightly Deposit**
    * **System: Enphase Gateway Connection Alert**
    * **Notification: Octopus Greener Night Reminder**
+   * **Notification: Octoplus Saving Session (DFS) Alert**
    * **Notification: Weekly Solar Forecast Digest**
 6. Use the dropdown menus to select your matching entities.
 7. **⚠️ Important Notification Setup:** In the **Notification Entity** text box, enter the ID of your preferred Home Assistant notifier (e.g., `notify.notify` or `notify.my_email`).
@@ -143,6 +143,7 @@ The system treats morning charging and evening discharging entirely differently 
 * **7-Day Average Morning/Evening Usage:** Your AI-learned house loads used to protect your baseline requirements.
 * **Morning Solar Yield Forecast:** Solcast's prediction of solar generation specifically between 05:30 and 11:00 AM.
 * **Next Greener Night:** Displays the date and time of your next scheduled Octopus Greener Night so you know when to plug in your EV.
+* **Next Octoplus Saving Session:** Displays the date and time of incoming premium DFS grid events.
 * **Hard Block (EV/Cheap):** Shows `On` if your EV is charging or grid import rates are exceptionally cheap, safely locking the battery from exporting.
 * **Current Dynamic Reserve Target:** The "Daytime Shield" percentage currently protecting your battery from random daytime export spikes.
 * **Peak Export Floor:** The mathematically calculated minimum battery percentage required to survive the evening. During the "Golden Slot", the system will export everything above this line.

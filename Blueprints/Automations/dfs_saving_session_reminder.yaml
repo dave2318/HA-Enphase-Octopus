@@ -1,0 +1,66 @@
+﻿blueprint:
+  name: "Notification: Octoplus Saving Session (DFS) Alert"
+  description: Checks the Octoplus Saving Sessions calendar early in the morning and sends an alert if a session is scheduled for today.
+  domain: automation
+  input:
+    cfg_calendar_entity:
+      name: Saving Sessions Calendar
+      description: Select your Octoplus Saving Sessions calendar entity.
+      selector:
+        entity:
+          domain: calendar
+    cfg_trigger_time:
+      name: Scan Time
+      description: The time of day to check the calendar.
+      default: "01:00:00"
+      selector:
+        time:
+    cfg_notify_service:
+      name: Notification Entity
+      description: The notification service to use (e.g., notify.notify).
+      default: notify.notify
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: single
+
+variables:
+  calendar_entity: !input cfg_calendar_entity
+  cfg_notify_service: !input cfg_notify_service
+
+triggers:
+  - trigger: time
+    at: !input cfg_trigger_time
+
+actions:
+  # Step 1: Read the DFS calendar from right now until the very end of today
+  - action: calendar.get_events
+    target:
+      entity_id: !input cfg_calendar_entity
+    data:
+      start_date_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      end_date_time: "{{ today_at('23:59:59').strftime('%Y-%m-%d %H:%M:%S') }}"
+    response_variable: scheduled_events
+
+  # Step 2: Check if any events were returned in that window
+  - condition: template
+    value_template: >-
+      {% set events = scheduled_events[calendar_entity].events | default([]) %}
+      {{ events | length > 0 }}
+
+  # Step 3: Send the alert with dynamically extracted times
+  - action: "{{ cfg_notify_service }}"
+    data:
+      title: "🔥 Octoplus Saving Session Today!"
+      message: >-
+        {% set events = scheduled_events[calendar_entity].events | default([]) %}
+        {% set start_time = as_timestamp(events[0].start) | timestamp_custom('%H:%M') %}
+        {% set end_time = as_timestamp(events[0].end) | timestamp_custom('%H:%M') %}
+        Octopus has scheduled an Octoplus Saving Session today from {{ start_time }} to {{ end_time }}!
+        
+        🔋 DFS God Mode is armed and will automatically dump the battery to the grid to maximize your credit.
+        
+        To help maximize your profits even further, try to avoid using heavy appliances (like the oven or washing machine) during this window.

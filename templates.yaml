@@ -1,4 +1,4 @@
-﻿# templates.yaml - Master Consolidated Version (V6.2 Final Architecture)
+﻿# templates.yaml - Master Consolidated Version (V6.8 Final Architecture + DFS God Mode)
 
 - sensor:
     - name: "Daily Grid Battery Charge Cost"
@@ -143,10 +143,13 @@
           {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
           {% set standard_floor = [reserve_floor, [needed_soc, 95]|min]|max | round(0) %}
 
-          {# --- V6.2: GOD MODE & SPIKE OVERRIDE --- #}
+          {# --- V6.2: GOD MODE & SPIKE OVERRIDE + DFS SAVING SESSIONS --- #}
           {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
           {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
           {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
+
+          {# NEW: Check for an active DFS Saving Session #}
+          {% set is_dfs = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
 
           {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
           {% set ns = namespace(upcoming_spike=false) %}
@@ -162,7 +165,7 @@
             {% endif %}
           {% endfor %}
 
-          {% if current_rate_p >= spike_threshold or ns.upcoming_spike %}
+          {% if current_rate_p >= spike_threshold or ns.upcoming_spike or is_dfs %}
             {{ reserve_floor }} 
           {% else %}
             {{ standard_floor }} 
@@ -283,6 +286,17 @@
         {% else %}
           None Scheduled
         {% endif %}
+        
+    - name: "Next Saving Session"
+      unique_id: next_saving_session
+      icon: mdi:piggy-bank-outline
+      state: >
+        {% set next_start = state_attr('calendar.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'start_time') %}
+        {% if next_start %}
+          {{ as_timestamp(next_start) | timestamp_custom('%a %d %b, %H:%M') }}
+        {% else %}
+          None Scheduled
+        {% endif %}
 
 - binary_sensor:
     - name: "Grid Charge Recommended"
@@ -374,7 +388,9 @@
           {% set floor = states('sensor.battery_export_floor') | float(0) %}
           
           {# --- 1. GOD MODE OVERRIDE (Any time of day) --- #}
-          {% if current_rate_p >= spike_threshold %}
+          {% set is_dfs = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
+          
+          {% if current_rate_p >= spike_threshold or is_dfs %}
             {{ soc > (floor + 3) }}
           
           {# --- 2. STANDARD PEAK WINDOW (16:30 - 19:00) --- #}

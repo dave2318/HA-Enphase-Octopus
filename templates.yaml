@@ -297,6 +297,20 @@
         {% else %}
           None Scheduled
         {% endif %}
+    - name: "Next Saving Session Reward"
+      unique_id: next_saving_session_reward
+      unit_of_measurement: "p"
+      icon: mdi:cash-multiple
+      state: >
+        {# Look at the Octopus Event entity for available sessions #}
+        {% set events = state_attr('event.octopus_energy_a_OctopusAccountId_octoplus_saving_session_events', 'available_events') %}
+        {% if events and events | length > 0 %}
+          {# Extract the points for the very next session and divide by 8 to get Pence #}
+          {% set points = events[0].octopoints_per_kwh | float(0) %}
+          {{ (points / 8) | round(0) }}
+        {% else %}
+          0
+        {% endif %}
 
 - binary_sensor:
     - name: "Grid Charge Recommended"

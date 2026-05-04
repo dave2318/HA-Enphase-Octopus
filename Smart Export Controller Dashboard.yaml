@@ -69,8 +69,9 @@ views:
           is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
           'on') %}
 
-          **Current Strategy:**  {% if dfs %}
-            🔥 **SAVING SESSION:** God Mode active! Maximizing dump to grid for premium Octoplus credit!
+          **Current Strategy:** {% if dfs %}
+            {% set dfs_rate = states('sensor.next_saving_session_reward') | float(0) %}
+            🔥 **SAVING SESSION:** God Mode active! Dumping to the grid at an incredible {{ dfs_rate }}p/kWh!
           {% elif holiday %}
             ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
           {% elif rescue %}

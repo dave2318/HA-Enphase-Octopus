@@ -1,0 +1,78 @@
+﻿blueprint:
+  name: "Energy: Free Power Vacuum Mode"
+  description: "Forces the Enphase battery to charge from the grid when an Octopus Free Electricity session is active, then returns to normal operation when the session ends."
+  domain: automation
+  input:
+    free_electricity_sensor:
+      name: Free Electricity Session Sensor
+      description: Select the Octopus Free Electricity binary sensor from the BottlecapDave integration.
+      selector:
+        entity:
+          domain: binary_sensor
+    cfg_switch:
+      name: Enphase CFG Switch
+      description: Select your Enphase Charge from Grid switch (e.g., switch.enphase_cfg_mode).
+      selector:
+        entity:
+          domain: switch
+    hard_block_sensor:
+      name: Hard Block Sensor
+      description: Select your 'Hard Block Active' binary sensor to prevent clashing with IOG/EV charging.
+      default: binary_sensor.hard_block_active
+      selector:
+        entity:
+          domain: binary_sensor
+    notify_service:
+      name: Notification Entity
+      description: The notification service to use (e.g., notify.notify).
+      default: notify.notify
+      selector:
+        text:
+
+# ====================================================
+# AUTOMATION LOGIC
+# ====================================================
+mode: single
+
+trigger:
+  - platform: state
+    entity_id: !input free_electricity_sensor
+    to: "on"
+
+action:
+  # 1. Force the Enphase battery to suck power from the grid
+  - service: switch.turn_on
+    target:
+      entity_id: !input cfg_switch
+      
+  # 2. Enphase API Tantrum Protection (Cooldown)
+  - delay: "00:02:00"
+      
+  # 3. Send an alert
+  - service: !input notify_service
+    data:
+      title: "🎉 Free Electricity Vacuum Engaged!"
+      message: >
+        Octopus Free Electricity is active right now! 
+        The house battery is currently sucking up 100% free power from the grid to fill itself up. 
+        
+        Now is the time to run the washing machine, dishwasher, and oven!
+
+  # 4. Wait for the free session to end
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input free_electricity_sensor
+        to: "off"
+
+  # 5. Safety Check: Only turn off CFG if we aren't supposed to be charging anyway
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: !input hard_block_sensor
+            state: "off"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input cfg_switch
+          # 6. Final Cooldown before allowing other automations to touch the Envoy
+          - delay: "00:02:00"

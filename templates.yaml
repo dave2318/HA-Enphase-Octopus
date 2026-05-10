@@ -311,6 +311,20 @@
         {% else %}
           0
         {% endif %}
+        
+    - name: "Next Free Electricity Session"
+      unique_id: next_free_electricity_session
+      icon: mdi:party-popper
+      state: >
+        {# Look at the Octopus Event entity for free sessions #}
+        {% set events = state_attr('event.octopus_energy_a_OctopusAccountId_free_electricity_events', 'available_events') %}
+        {% if events and events | length > 0 %}
+          {% set start = as_timestamp(events[0].start) | timestamp_custom('%d %b %H:%M') %}
+          {% set end = as_timestamp(events[0].end) | timestamp_custom('%H:%M') %}
+          {{ start }} to {{ end }}
+        {% else %}
+          None Scheduled
+        {% endif %}
 
 - binary_sensor:
     - name: "Grid Charge Recommended"

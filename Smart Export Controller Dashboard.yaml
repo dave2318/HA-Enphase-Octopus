@@ -90,28 +90,20 @@ views:
       - type: markdown
         title: 🚦 Export Logic Checklist
         content: >
-          {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-
-          {% set floor = states('sensor.battery_export_floor') | float(0) %} 
-
-          {% set profit_val = states('sensor.export_profitability') | float(0)
-          %}
-
-          {% set winter = is_state('input_boolean.winter_mode', 'on') %} 
-
-          {% set holiday = is_state('input_boolean.holiday_mode', 'on') %} 
-
-          {% set car = is_state('binary_sensor.hard_block_active', 'on') %} 
-
-          {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}  
-
-          {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
-          'on') %}
-
-          {% set dfs =
+          {% set free_power =
+          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_free_electricity',
+          'on') %} {% set soc = states('sensor.envoy_EnvoyMAC_battery') |
+          float(0) %} {% set floor = states('sensor.battery_export_floor') |
+          float(0) %}  {% set profit_val = states('sensor.export_profitability')
+          | float(0) %} {% set winter = is_state('input_boolean.winter_mode',
+          'on') %}  {% set holiday = is_state('input_boolean.holiday_mode',
+          'on') %}  {% set car = is_state('binary_sensor.hard_block_active',
+          'on') %}  {% set peak = is_state('binary_sensor.in_peak_window', 'on')
+          %}   {% set smart_peak =
+          is_state('binary_sensor.smart_peak_export_active', 'on') %} {% set dfs
+          =
           is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
           'on') %}
-
 
           **Blocks** 
 
@@ -134,9 +126,9 @@ views:
           --- 
 
 
-          **System Verdict:** 
-
-          {% if dfs %}
+          **System Verdict:**   {% if free_power %}
+            🎉 FREE POWER VACUUM (FORCED GRID CHARGE)
+          {% elif dfs %}
             🔥 SAVING SESSION (GOD MODE)
           {% elif car %}
             🛑 BLOCKED (EV/CHEAP)
@@ -230,6 +222,8 @@ views:
           - entity: sensor.next_greener_night
           - entity: sensor.next_saving_session
             name: Next Octoplus Saving Session
+          - entity: sensor.next_free_electricity_session
+            name: Next Free Electricity Session
           - type: section
             label: Evening & Export Strategy
           - entity: sensor.dynamic_reserve

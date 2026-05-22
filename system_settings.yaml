@@ -76,7 +76,7 @@ holiday_reserve_floor:
   min: 5
   max: 50
   step: 1
-  initial: 10
+  initial: 25
 
 agile_spike_threshold_p:
   name: Agile Spike Threshold (God Mode)

@@ -137,18 +137,38 @@
             {% set fallback_usage = states('input_number.summer_evening_usage_kwh') | float(2.8) %}
           {% endif %}
           
-          {% set evening_req_kwh = avg_usage if avg_usage > (fallback_usage * 0.6) else fallback_usage %} 
+          {% set base_req_kwh = avg_usage if avg_usage > (fallback_usage * 0.6) else fallback_usage %} 
           
-          {% set gap = (evening_req_kwh - solar_remaining) %}
+          {# --- V6.9 FIX: DYNAMIC BURN-DOWN --- #}
+          {# Subtracts energy already consumed since 16:30 so the floor doesn't inflate #}
+          {% set t = now().time() %}
+          {% if t >= strptime('16:30', '%H:%M').time() and t < strptime('23:30', '%H:%M').time() %}
+            {% set current_consumption = states('sensor.envoy_EnvoyMAC_energy_consumption_today') | float(0) %}
+            {% set start_consumption = states('sensor.evening_consumption_baseline') | float(0) %}
+            {% set dtg_export = states('sensor.today_peak_dtg_export') | float(0) %}
+            
+            {# Calculates true house load used so far during the peak window #}
+            {% set consumed_so_far = (current_consumption - start_consumption) + dtg_export %}
+            {% set consumed_so_far = consumed_so_far if consumed_so_far > 0 else 0.0 %}
+            
+            {# Reduces the required evening target by what has already been used #}
+            {% set evening_req_kwh = [base_req_kwh - consumed_so_far, 0.0] | max %}
+          {% else %}
+            {% set evening_req_kwh = base_req_kwh %}
+          {% endif %}
+          
+          {% set gap = [evening_req_kwh - solar_remaining, 0.0] | max %}
           {% set needed_soc = ((gap / (battery_cap_kwh * rte)) * 100) + 6.0 %}
-          {% set standard_floor = [reserve_floor, [needed_soc, 95]|min]|max | round(0) %}
+          
+          {# Hard ceiling lowered to 85% to prevent lock-up #}
+          {% set standard_floor = [reserve_floor, [needed_soc, 85]|min]|max | round(0) %}
 
           {# --- V6.2: GOD MODE & SPIKE OVERRIDE + DFS SAVING SESSIONS --- #}
           {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
           {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
           {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
 
-          {# NEW: Check for an active DFS Saving Session #}
+          {# Check for an active DFS Saving Session #}
           {% set is_dfs = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
 
           {% set rates = state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates', 'rates') or [] %}
@@ -291,7 +311,7 @@
       unique_id: next_saving_session
       icon: mdi:piggy-bank-outline
       state: >
-        {% set next_start = state_attr('calendar.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'start_time') %}
+        {% set next_start = state_attr('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'next_joined_event_start') %}
         {% if next_start %}
           {{ as_timestamp(next_start) | timestamp_custom('%a %d %b, %H:%M') }}
         {% else %}
@@ -402,26 +422,29 @@
 
     - name: "Smart Peak Export Active"
       unique_id: smart_peak_export_active
+      icon: mdi:flash-auto
       state: >
-        {# --- 0. IOG / DTG COLLISION SHIELD --- #}
-        {% if is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching', 'on') %}
-          false
+        {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+        {% set floor = states('sensor.battery_export_floor') | float(0) %}
+
+        {# --- 1. VIP OVERRIDES (ACTIVE DFS & SPIKES) --- #}
+        {% set is_dfs_active = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
+        
+        {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+        {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
+        {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
+        
+        {% if is_dfs_active or current_rate_p >= spike_threshold %}
+          true
+          
+        {# --- 2. STANDARD PEAK WINDOW (16:30 - 19:00) --- #}
         {% else %}
+          {# V6.10 FIX: DFS HOARDING MODE #}
+          {% set next_dfs = state_attr('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'next_joined_event_start') %}
+          {% set dfs_upcoming_today = next_dfs is not none and as_datetime(next_dfs) | as_local > now() and as_datetime(next_dfs) | as_local < today_at('23:59') %}
           
-          {% set raw_exp = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
-          {% set current_rate_p = (raw_exp * 100) if raw_exp < 1.0 else raw_exp %}
-          {% set spike_threshold = states('input_number.agile_spike_threshold_p') | float(50.0) %}
-          
-          {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-          {% set floor = states('sensor.battery_export_floor') | float(0) %}
-          
-          {# --- 1. GOD MODE OVERRIDE (Any time of day) --- #}
-          {% set is_dfs = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
-          
-          {% if current_rate_p >= spike_threshold or is_dfs %}
-            {{ soc > (floor + 3) }}
-          
-          {# --- 2. STANDARD PEAK WINDOW (16:30 - 19:00) --- #}
+          {% if dfs_upcoming_today %}
+            false {# Hold fire! Hoard the battery for the massive DFS payout later today #}
           {% else %}
             {% set t = now().time() %}
             {% if t < strptime('16:30', '%H:%M').time() or t >= strptime('19:00', '%H:%M').time() %}
@@ -461,7 +484,6 @@
               {{ (ns.active or last_chance) and soc > (floor + 3) }}
             {% endif %}
           {% endif %}
-
         {% endif %}
 
     - name: "Hard Block Active"

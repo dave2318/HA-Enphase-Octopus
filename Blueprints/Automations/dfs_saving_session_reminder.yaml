@@ -1,6 +1,6 @@
 ﻿blueprint:
   name: "Notification: Octoplus Saving Session (DFS) Alert"
-  description: Checks the Octoplus Saving Sessions calendar early in the morning and sends an alert with the payout rate if a session is scheduled for today.
+  description: Checks the Octoplus Saving Sessions calendar early in the morning and sends an alert if a session is scheduled for today.
   domain: automation
   input:
     cfg_calendar_entity:
@@ -9,12 +9,6 @@
       selector:
         entity:
           domain: calendar
-    cfg_reward_sensor:
-      name: Reward Sensor
-      description: Select the 'Next Saving Session Reward' sensor you created in templates.yaml.
-      selector:
-        entity:
-          domain: sensor
     cfg_trigger_time:
       name: Scan Time
       description: The time of day to check the calendar.
@@ -35,7 +29,6 @@ mode: single
 
 variables:
   calendar_entity: !input cfg_calendar_entity
-  reward_sensor: !input cfg_reward_sensor
   cfg_notify_service: !input cfg_notify_service
 
 triggers:
@@ -58,7 +51,7 @@ actions:
       {% set events = scheduled_events[calendar_entity].events | default([]) %}
       {{ events | length > 0 }}
 
-  # Step 3: Send the alert with dynamically extracted times and rates
+  # Step 3: Send the alert with dynamically extracted times
   - action: "{{ cfg_notify_service }}"
     data:
       title: "🔥 Octoplus Saving Session Today!"
@@ -66,8 +59,7 @@ actions:
         {% set events = scheduled_events[calendar_entity].events | default([]) %}
         {% set start_time = as_timestamp(events[0].start) | timestamp_custom('%H:%M') %}
         {% set end_time = as_timestamp(events[0].end) | timestamp_custom('%H:%M') %}
-        {% set reward = states(reward_sensor) | float(0) %}
-        Octopus has scheduled an Octoplus Saving Session today from {{ start_time }} to {{ end_time }}, paying a massive {{ reward }}p/kWh!
+        Octopus has scheduled an Octoplus Saving Session today from {{ start_time }} to {{ end_time }}!
         
         🔋 DFS God Mode is armed and will automatically dump the battery to the grid to maximize your credit.
         

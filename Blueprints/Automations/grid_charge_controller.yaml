@@ -79,10 +79,34 @@ actions:
           - condition: template
             value_template: "{{ current_soc | float(0) < target_soc | float(0) }}"
         sequence:
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ cfg_switch_charge }}"
-          
+          # --- NEW: Resilient Verification Loop (TEMPLATE FIX) ---
+          - repeat:
+              sequence:
+                - action: switch.turn_on
+                  target:
+                    entity_id: "{{ cfg_switch_charge }}"
+                - delay: "00:02:00"
+              until:
+                - condition: or
+                  conditions:
+                    - condition: template
+                      value_template: "{{ is_state(cfg_switch_charge, 'on') }}"
+                    - condition: template
+                      value_template: "{{ repeat.index >= 3 }}"
+                  
+          # --- NEW: Failure Failsafe (TEMPLATE FIX) ---
+          - if:
+              - condition: template
+                value_template: "{{ is_state(cfg_switch_charge, 'off') }}"
+            then:
+              - action: "{{ cfg_notify_service }}"
+                data:
+                  title: "🚨 CRITICAL: Grid Charge FAILED"
+                  message: >-
+                    The system attempted to turn on the grid charge switch 3 times, waiting 2 minutes between each attempt. The cloud API rejected or dropped all commands. The battery is NOT charging.
+              - stop: "Cloud API integration failure."
+
+          # --- ORIGINAL: Success Notification ---
           - action: "{{ cfg_notify_service }}"
             data:
               title: "🔋 Grid Charging Started"

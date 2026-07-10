@@ -1,8 +1,9 @@
 ﻿blueprint:
-  name: "Energy: Smart Export Controller"
+  name: "Energy: Smart Export Controller (Profit Floor & DFS Lockout)"
   description: >-
     Dynamic battery export arbitrage based on Octopus Energy rates and Enphase/Solcast data.
     Automatically exports to the grid when profitable while maintaining dynamic winter/summer reserves.
+    Includes a 1.5p minimum profit floor, Unicorn Dump, and Octopus DFS Lockout.
   domain: automation
   input:
     cfg_sensor_soc:
@@ -24,6 +25,18 @@
       selector:
         entity:
           domain: sensor
+    cfg_sensor_dfs_lockout:
+      name: DFS Lockout Sensor (All Day)
+      description: The custom template sensor that stays ON all day when a session is scheduled.
+      selector:
+        entity:
+          domain: binary_sensor
+    cfg_sensor_dfs_active:
+      name: DFS Active Session Sensor (Live Event)
+      description: The Octopus integration sensor that only turns ON during the actual session.
+      selector:
+        entity:
+          domain: binary_sensor
     cfg_switch_export:
       name: Battery Export Switch
       description: The switch that forces your battery to discharge to the grid.
@@ -55,6 +68,12 @@ triggers:
       - !input cfg_sensor_export_rate
       - !input cfg_sensor_import_rate
     trigger: state
+  - id: dfs_lockout_change
+    entity_id: !input cfg_sensor_dfs_lockout
+    trigger: state
+  - id: dfs_active_change
+    entity_id: !input cfg_sensor_dfs_active
+    trigger: state
   - id: soc_change
     entity_id: !input cfg_sensor_soc
     trigger: state
@@ -66,10 +85,11 @@ triggers:
 actions:
   - condition: template
     value_template: >-
-      {% set dtg = states[cfg_switch_export].last_changed %}  {% set cfg =
-      states[cfg_switch_charge].last_changed %}  {% set dtg_ok = dtg is none or
-      (now() - dtg).total_seconds() > 120 %}  {% set cfg_ok = cfg is none or
-      (now() - cfg).total_seconds() > 120 %}  {{ dtg_ok and cfg_ok }}
+      {% set dtg = states[cfg_switch_export].last_changed %}  
+      {% set cfg = states[cfg_switch_charge].last_changed %}  
+      {% set dtg_ok = dtg is none or (now() - dtg).total_seconds() > 120 %}  
+      {% set cfg_ok = cfg is none or (now() - cfg).total_seconds() > 120 %}  
+      {{ dtg_ok and cfg_ok }}
   - choose:
       - conditions:
           - condition: template
@@ -84,17 +104,15 @@ actions:
             data:
               name: Smart Export Controller
               message: >-
-                Started Export. Reason: {{ 'Price Profitability' if
-                is_profitable else 'Smart Peak Surplus' }}. SOC: {{ soc_val }}%,
+                Started Export. Reason: {{ start_reason_long }}. SOC: {{ soc_val }}%,
                 Winter Floor: {{ export_floor_val }}%
               entity_id: "{{ cfg_switch_export }}"
           - action: "{{ cfg_notify_service }}"
             data:
-              title: >-
-                💰 Export Active: {{ 'Price Profit' if is_profitable else 'Smart Peak' }}
+              title: "💰 Export Active: {{ start_reason_short }}"
               message: |
                 STATUS: STARTING EXPORT
-                REASON: {{ 'Price Profitability' if is_profitable else 'Smart Peak Surplus' }}
+                REASON: {{ start_reason_long }}
 
                 [SYSTEM STATE]
                 - Battery SOC: {{ soc_val }}%
@@ -105,7 +123,7 @@ actions:
                 [PRICING & CALCULATIONS]
                 - Export Rate: {{ export_rate_val }}p
                 - Import Rate: {{ import_rate_val }}p
-                - Current Net Profit: {{ (export_rate_val - (import_rate_val / sys_rte)) | round(2) }}p/kWh
+                - Current Net Profit: {{ net_profit }}p/kWh
       - conditions:
           - condition: template
             value_template: "{{ not should_export_goal }}"
@@ -137,10 +155,21 @@ variables:
   cfg_sensor_soc: !input cfg_sensor_soc
   cfg_sensor_export_rate: !input cfg_sensor_export_rate
   cfg_sensor_import_rate: !input cfg_sensor_import_rate
+  cfg_sensor_dfs_lockout: !input cfg_sensor_dfs_lockout
+  cfg_sensor_dfs_active: !input cfg_sensor_dfs_active
   cfg_switch_export: !input cfg_switch_export
   cfg_switch_charge: !input cfg_switch_charge
   cfg_notify_service: !input cfg_notify_service
   
+  # --- Configuration Thresholds ---
+  min_profit: 1.5
+  huge_profit: 15.0  
+  
+  # --- DFS States ---
+  dfs_locked_out: "{{ is_state(cfg_sensor_dfs_lockout, 'on') }}" 
+  is_dfs_running: "{{ is_state(cfg_sensor_dfs_active, 'on') }}"
+
+  # --- Core Variables ---
   sys_rte: "{{ states('input_number.battery_efficiency_rte') | float(0.83) }}"
   soc_val: "{{ states(cfg_sensor_soc) | float(0) }}"
   export_floor_val: "{{ states('sensor.battery_export_floor') | float(0) }}"
@@ -149,19 +178,36 @@ variables:
   import_rate_val: "{{ states(cfg_sensor_import_rate) | float(0) }}"
   is_winter: "{{ is_state('input_boolean.winter_mode', 'on') }}"
   is_holiday: "{{ is_state('input_boolean.holiday_mode', 'on') }}"
-  is_profitable: "{{ states('sensor.export_profitability') | float(0) > 0 }}"
   is_cheap: "{{ is_state('binary_sensor.in_cheap_import_window', 'on') }}"
   is_peak: "{{ is_state('binary_sensor.in_peak_window', 'on') }}"
   car_charging: "{{ is_state('binary_sensor.hard_block_active', 'on') }}"
   is_smart_peak: "{{ is_state('binary_sensor.smart_peak_export_active', 'on') }}"
   
-  should_export_goal: >-
-    {% set blocked = is_cheap or car_charging %}  
-    {% set daytime_profit = is_profitable and (is_holiday or soc_val > reserve_val) %}  
-    {{ not blocked and (daytime_profit or is_smart_peak) }}
+  # --- Profitability Math ---
+  net_profit: "{{ (export_rate_val - (import_rate_val / sys_rte)) | round(2) }}"
+  is_profitable: "{{ net_profit >= min_profit }}"
+  is_huge_profit: "{{ net_profit >= huge_profit }}"
   
+  # --- The Master Logic Gate ---
+  should_export_goal: >-
+    {% set hard_blocked = is_cheap or car_charging %}
+    {% set unicorn_dump = is_huge_profit and soc_val > export_floor_val %}
+    {% set golden_slot = is_smart_peak and soc_val > export_floor_val %}
+    {% set standard_daytime = is_profitable and soc_val > reserve_val %}
+    {% set normal_exports = (standard_daytime or golden_slot) and not dfs_locked_out %}
+    {% set dfs_dump = is_dfs_running and soc_val > export_floor_val %}
+    
+    {{ not hard_blocked and (unicorn_dump or normal_exports or dfs_dump) }}
+  
+  # --- Notification Strings ---
+  start_reason_short: >-
+    {% if is_dfs_running %}DFS Session{% elif is_huge_profit %}Unicorn Dump{% elif is_smart_peak %}Smart Peak{% else %}Price Profit{% endif %}
+    
+  start_reason_long: >-
+    {% if is_dfs_running %}Saving Session (DFS) Active{% elif is_huge_profit %}Massive Profit Spike Detected{% elif is_smart_peak %}Smart Peak Surplus{% else %}Standard Price Arbitrage{% endif %}
+
   stop_reason_short: >-
-    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif not is_smart_peak and soc_val <= reserve_val %}Reserve{% elif is_smart_peak and soc_val <= export_floor_val %}Floor Hit{% else %}Idle{% endif %}
+    {% if car_charging %}EV Block{% elif is_cheap %}Cheap Rate{% elif dfs_locked_out and not (is_huge_profit or is_dfs_running) %}DFS Lockout{% elif (is_smart_peak or is_huge_profit or is_dfs_running) and soc_val <= export_floor_val %}Floor Hit{% elif not is_smart_peak and soc_val <= reserve_val %}Reserve Hit{% else %}Low Profit{% endif %}
   
   stop_reason_long: >-
-    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid import rates are in the cheap window.{% elif not is_smart_peak and soc_val <= reserve_val %}Daytime arbitrage stopped: SOC ({{ soc_val }}%) hit the Dynamic Reserve ({{ reserve_val }}%).{% elif is_smart_peak and soc_val <= export_floor_val %}Peak dump complete: SOC reached the safety floor ({{ export_floor_val }}%).{% else %}Export is no longer profitable.{% endif %}
+    {% if car_charging %}EV/Cheap charging is active.{% elif is_cheap %}Grid import rates are in the cheap window.{% elif dfs_locked_out and not (is_huge_profit or is_dfs_running) %}A lucrative Saving Session (DFS) is scheduled today. Standard exports are blocked.{% elif (is_smart_peak or is_huge_profit or is_dfs_running) and soc_val <= export_floor_val %}High-value dump complete: SOC reached the safety floor ({{ export_floor_val }}%).{% elif not is_smart_peak and soc_val <= reserve_val %}Daytime arbitrage stopped: SOC ({{ soc_val }}%) hit the Dynamic Reserve ({{ reserve_val }}%).{% elif not is_smart_peak and is_state('binary_sensor.smart_peak_export_active', 'off') and soc_val > reserve_val %}The Smart Peak export window deactivated or hit its SOC limit.{% else %}Net profit ({{ net_profit }}p) is below the {{ min_profit }}p threshold.{% endif %}

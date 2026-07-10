@@ -1,18 +1,18 @@
 ﻿# Home Assistant Smart Energy Arbitrage (Octopus + Enphase + Solcast)
-**Current Version:** V6.8 (The Octoplus DFS God Mode Edition)
+**Current Version:** V6.10 (The Octoplus DFS Hoarding & Free Power Edition)
 
 This repository contains an advanced, highly automated energy management system for Home Assistant. It is designed to optimize battery storage by making dynamic export and grid-charging decisions based on live energy prices, solar forecasts, and historical house consumption.
 
 It is specifically tailored for UK users on **Octopus Energy** dynamic tariffs (like Agile, Intelligent, or Flux) with an **Enphase** solar/battery ecosystem.
 
 ## ✨ Key Features
-* **V6.8 Octoplus DFS God Mode:** The system now natively tracks Demand Flexibility Service (Saving Sessions). If a session triggers, it immediately suspends standard arbitrage limits and safely dumps maximum power into the grid, capturing premium £3/kWh credit rates. 
-* **V6.8 Pure AI Failsafes:** Grid charging is now fully commanded by the `Calculated Target SOC` AI logic rather than independent thresholds. It dynamically calculates exactly how many kWh you need to survive until the sun rises, charging only what is strictly necessary.
-* **V6.2 The "Hold at 100" Winter Fix:** Cured the "Overnight Leak." During winter, if the overnight target is 100%, the grid charger intentionally hangs in an active state until 05:29. This forces the Enphase inverter into "Bypass Mode," powering the house directly from the cheap grid rather than letting the battery drain before the cheap window ends.
-* **V6.2 Morning Data Poisoning Shield:** The system now subtracts overnight grid charging from the daily consumption sensors. This prevents a "Morning Death Spiral" where the AI incorrectly assumes grid charging was house load, which would previously bloat the 7-day average and cause runaway overcharging.
-* **V6.2 IOG / DTG Collision Shield:** Added a strict interlock to prevent "Selling to Yourself." If Octopus Intelligent Go triggers a cheap EV charge slot, the Smart Peak Export is strictly forbidden from dumping. This ensures you don't waste 35p export power by accidentally feeding it into your EV at 7p.
-* **V6.1 Wall Street Mode (Energy Arbitrage):** The system actively calculates Round Trip Efficiency (RTE) to find profitable spreads between tonight's import rates and tomorrow's export rates. If `(Tomorrow's Average Export * 0.83) > Tonight's Import`, it overrides self-consumption logic and forces a 100% grid charge to maximize next-day profit.
-* **Intelligent Octopus Daytime Rescue:** Actively listens for random, unpredicted daytime cheap slots triggered by your EV. Instead of just blindly taking the slot, it checks your dynamic reserve floor and remaining solar forecast, hijacking the cheap electricity to top up your house battery *only* if the system was struggling.
+* **V6.10 DFS Hoarding Mode:** The system now checks if an Octopus Saving Session (DFS) is scheduled later in the day. If detected, it actively suppresses standard 16:30-19:00 peak exports, hoarding battery capacity to ensure a maximum dump during the premium DFS payout window.
+* **V6.9 Dynamic Burn-Down Fix:** The evening export floor calculation has been updated to completely remove the CT clamp offset. It now relies on pure, live evening consumption baseline tracking.
+* **Free Power Vacuum Mode:** Actively listens for Octopus "Free Electricity" sessions. When triggered, it forces the battery to suck 100% free power from the grid, automatically shutting off when the session concludes.
+* **Lifetime ROI Ledger:** A nightly automation calculates your exact daily savings from peak-rate avoidance, direct solar usage, and export earnings, depositing the exact monetary values into a permanent dashboard vault.
+* **V6.8 Pure AI Failsafes:** Grid charging is now fully commanded by the `Calculated Target SOC` AI logic rather than independent thresholds. It dynamically calculates exactly how many kWh you need to survive until the sun rises.
+* **V6.2 The "Hold at 100" Winter Fix:** Cured the "Overnight Leak." During winter, if the overnight target is 100%, the grid charger intentionally hangs in an active state until 05:27 AM. This forces the Enphase inverter into "Bypass Mode," powering the house directly from the cheap grid rather than letting the battery drain before the cheap window ends.
+* **Intelligent Octopus Daytime Rescue:** Actively listens for random, unpredicted daytime cheap slots triggered by your EV. It checks your dynamic reserve floor and remaining solar forecast, hijacking the cheap electricity to top up your house battery *only* if the system was struggling.
 
 ## 📋 Prerequisites
 To use this setup, you must have the following custom integrations installed in Home Assistant (available via HACS):
@@ -24,85 +24,74 @@ To use this setup, you must have the following custom integrations installed in 
 
 ## ⚙️ Installation & Setup
 
-Because Home Assistant requires hardcoded entity IDs for some integrations and dashboards, you must replace my system's specific hardware IDs with your own for the templates and dashboard. However, the core automations are provided as easy-to-use **Blueprints**!
+Because Home Assistant requires hardcoded entity IDs for some integrations and dashboards, you must replace my system's specific hardware IDs with your own for the templates and dashboard. 
 
 ### Step 1: Add the System Variables
-Add the following into your `configuration.yaml`, replacing `EnvoyMAC` with `YOUR_ENVOY_MAC`:
+Add the following into your `configuration.yaml`, replacing `EnvoyMAC` with your actual Enphase integration ID:
 
-```yaml
-utility_meter:
-  daily_battery_discharged:
-    source: sensor.envoy_EnvoyMAC_lifetime_battery_energy_discharged
-    name: "Daily Battery Energy Discharged"
-    unique_id: um_daily_battery_discharged
-    cycle: daily
+    utility_meter:
+      daily_battery_discharged:
+        source: sensor.envoy_EnvoyMAC_lifetime_battery_energy_discharged
+        name: "Daily Battery Energy Discharged"
+        unique_id: um_daily_battery_discharged
+        cycle: daily
 
-  grid_energy_import_today:
-    source: sensor.envoy_EnvoyMAC_lifetime_net_energy_consumption
-    name: "Grid Energy Import Today"
-    unique_id: um_grid_energy_import_today
-    cycle: daily
+      grid_energy_import_today:
+        source: sensor.envoy_EnvoyMAC_lifetime_net_energy_consumption
+        name: "Grid Energy Import Today"
+        unique_id: um_grid_energy_import_today
+        cycle: daily
 
-  grid_energy_export_today:
-    source: sensor.envoy_EnvoyMAC_lifetime_net_energy_production
-    name: "Grid Energy Export Today"
-    unique_id: um_grid_energy_export_today
-    cycle: daily
+      grid_energy_export_today:
+        source: sensor.envoy_EnvoyMAC_lifetime_net_energy_production
+        name: "Grid Energy Export Today"
+        unique_id: um_grid_energy_export_today
+        cycle: daily
 
-  solar_production_daily:
-    source: sensor.envoy_EnvoyMAC_lifetime_energy_production
-    name: "Daily Solar Production"
-    unique_id: um_solar_production_daily
-    cycle: daily    
+      solar_production_daily:
+        source: sensor.envoy_EnvoyMAC_lifetime_energy_production
+        name: "Daily Solar Production"
+        unique_id: um_solar_production_daily
+        cycle: daily
 
-sensor:
-  - platform: statistics
-    name: "Average House Load 24h"
-    entity_id: sensor.house_consumption_clean_kw
-    state_characteristic: mean
-    max_age:
-      hours: 24
+    sensor:
+      - platform: statistics
+        name: "Average House Load 24h"
+        entity_id: sensor.house_consumption_clean_kw
+        state_characteristic: mean
+        max_age:
+          hours: 24
 
-input_number: !include system_settings.yaml
-```
+    template: !include templates.yaml
+    input_number: !include system_settings.yaml
 
-Copy the `system_settings.yaml` file into your Home Assistant configuration directory. Restart Home Assistant to generate the UI sliders.
+Copy `templates.yaml` and `system_settings.yaml` into your configuration directory and restart Home Assistant to generate the core sensors and UI sliders.
 
 ### Step 2: Create the Dashboard UI Helpers
-To ensure the custom dashboard renders perfectly and the seasonal logic works, you need to create three quick UI Helpers.
 Go to **Settings > Devices & Services > Helpers** and click **+ Create Helper**.
 
 **1. The Winter Mode Toggle**
-* Select **Toggle**
-* Name it: `Winter Mode`
-* *(This creates `input_boolean.winter_mode`, which the system uses to dynamically switch between your summer and winter battery reserve floors)*.
+* Select **Toggle** and name it: `Winter Mode`
 
 **2. The Holiday Mode Toggle**
-* Select **Toggle**
-* Name it: `Holiday Mode`
-* *(This creates `input_boolean.holiday_mode`, which freezes AI tracking and maximizes grid exports while you are away)*.
+* Select **Toggle** and name it: `Holiday Mode`
 
 **3. The Grid Flow Sensor**
-* Select **Template > Template a sensor**
-* Name it: `Grid Daily In Out`
+* Select **Template > Template a sensor** and name it: `Grid Daily In Out`
 * Paste this exact code into the **State template** box:
-```jinja2
-⬇ {{ states('sensor.grid_energy_import_today') | float(0) | round(1) }} | ⬆ {{ states('sensor.grid_energy_export_today') | float(0) | round(1) }} kWh
-```
-* Leave all other fields blank and click **Submit**.
+
+        ⬇ {{ states('sensor.grid_energy_import_today') | float(0) | round(1) }} | ⬆ {{ states('sensor.grid_energy_export_today') | float(0) | round(1) }} kWh
 
 ### Step 3: Configure Templates & Dashboard
-Open `templates.yaml` and `Smart Export Controller Dashboard.yaml` in a text editor. Use **Find and Replace** to swap the following placeholder strings with your actual entity IDs:
+Open `templates.yaml` and the Dashboard YAML files in a text editor. Use **Find and Replace** to swap the following placeholder strings with your actual entity IDs:
 
 | Find (Placeholder in code) | Replace With (Your System) | Example Format |
 | :--- | :--- | :--- |
 | `EnvoyMAC` | `YOUR_ENVOY_MAC` | `482425012345` |
-| `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | `electricity_1234567890_1234567890_export` |
-| `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | `electricity_1234567890_1234567890` |
-| `IntelligentDispatchVehicleId` | `YOUR_INTELLIGENT_DISPATCH_ID` | `IntelligentDispatchVehicleId` |
-| `OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | `OctopusAccountId` |
-
-*(Tip: You can usually find these exact strings by looking at the entity names generated by the Octopus Energy integration)*.
+| `OctopusExportMPAN` | `YOUR_EXPORT_MPAN` | `1234567890_1234567890` |
+| `OctopusImportMPAN` | `YOUR_IMPORT_MPAN` | `1234567890_1234567890` |
+| `e6e07484262222_1563990407` | `YOUR_GAS_MPRN` | `1234567890_1234567890` |
+| `a_OctopusAccountId` | `YOUR_OCTOPUS_ACCOUNT_ID` | `a_123b4567` |
 
 ### Step 4: Disarm the Native Enphase App
 To prevent the native Enphase gateway from fighting Home Assistant's commands, you must configure your Enphase app to allow HA to act as the primary brain. 
@@ -123,6 +112,7 @@ The core logic of this system is powered by Home Assistant Blueprints. This mean
    * **Energy: CFG Hard Failsafe Watchdog**
    * **Energy: Daily Battery ROI Audit**
    * **Energy: Lifetime Savings Nightly Deposit**
+   * **Energy: Free Power Vacuum Mode**
    * **System: Enphase Gateway Connection Alert**
    * **Notification: Octopus Greener Night Reminder**
    * **Notification: Octoplus Saving Session (DFS) Alert**
@@ -144,6 +134,7 @@ The system treats morning charging and evening discharging entirely differently 
 * **Morning Solar Yield Forecast:** Solcast's prediction of solar generation specifically between 05:30 and 11:00 AM.
 * **Next Greener Night:** Displays the date and time of your next scheduled Octopus Greener Night so you know when to plug in your EV.
 * **Next Octoplus Saving Session:** Displays the date and time of incoming premium DFS grid events.
+* **Next Free Electricity Session:** Displays the date and time of incoming free electricity events.
 * **Hard Block (EV/Cheap):** Shows `On` if your EV is charging or grid import rates are exceptionally cheap, safely locking the battery from exporting.
 * **Current Dynamic Reserve Target:** The "Daytime Shield" percentage currently protecting your battery from random daytime export spikes.
 * **Peak Export Floor:** The mathematically calculated minimum battery percentage required to survive the evening. During the "Golden Slot", the system will export everything above this line.
@@ -159,5 +150,3 @@ The system treats morning charging and evening discharging entirely differently 
 * **Holiday Mode:** A manual toggle that freezes the 7-day AI tracker from learning your vacation usage, while dropping the battery floor to maximize grid export profits while you are away.
 * **Morning/Evening Usage Estimate (Holiday):** The estimated kWh required for baseline house consumption (fridge, router, etc.) while the house is empty.
 * **Minimum SOC Floor (Holiday):** The lowest battery percentage allowed while on vacation. Usually set very low (e.g., 10%) to safely maximize exports.
-
-*** *Disclaimer: Always double-check your own specific Enphase entity IDs when importing the templates!*

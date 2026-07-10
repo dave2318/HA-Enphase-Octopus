@@ -3,293 +3,543 @@ views:
   - title: Smart Export Controller
     path: smart_export_controller
     icon: mdi:solar-power
+    type: masonry
     cards:
-      - show_name: true
-        show_icon: true
-        show_state: true
-        type: glance
-        title: Financial Summary
-        entities:
-          - entity: >-
-              sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate
-            name: Import Rate
-          - entity: >-
-              sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate
-            name: Export Rate
-          - entity: sensor.monthly_grid_battery_charge_cost
-          - entity: sensor.export_profitability
-            name: Net Profit/kWh
-          - entity: sensor.grid_energy_export_today
-          - entity: sensor.today_export_profit_accumulative
-            name: Earned Today
-          - entity: sensor.today_peak_dtg_profit
-            name: Peak Dump Profit
-          - entity: sensor.today_peak_dtg_export
-            name: Peak Dump Vol.
-          - entity: input_number.lifetime_solar_savings
-        state_color: true
-      - type: horizontal-stack
+      - type: vertical-stack
         cards:
-          - type: gauge
-            name: Battery SOC
-            unit: '%'
-            entity: sensor.envoy_EnvoyMAC_battery
-            min: 0
-            max: 100
-            severity:
-              green: 20
-              yellow: 10
-              red: 0
-          - type: gauge
-            name: Real-Time Export Profit
-            unit: p
-            entity: sensor.export_profitability
-            min: -15
-            max: 35
-            needle: true
-            severity:
-              green: 0.1
-              yellow: -5
-              red: -15
-      - type: markdown
-        title: Next Expected Behaviour
-        content: >
-          {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
-          {% set reserve = states('sensor.dynamic_reserve') | float(0) %}   {%
-          set winter = is_state('input_boolean.winter_mode', 'on') %}   {% set
-          holiday = is_state('input_boolean.holiday_mode', 'on') %}   {% set
-          is_profitable = states('sensor.export_profitability') | float(0) > 0
-          %}   {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
-          {% set smart_peak = is_state('binary_sensor.smart_peak_export_active',
-          'on') %} {% set rescue = is_state('switch.enphase_cfg_mode', 'on') and
-          is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching',
-          'on') and (now().hour >= 5 and now().hour < 23) %}
+          - type: grid
+            title: 💰 Financial Summary
+            columns: 3
+            square: false
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: >-
+                  sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate
+                name: Import Rate
+                icon_color: red
+              - type: custom:mushroom-entity-card
+                entity: >-
+                  sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate
+                name: Export Rate
+                icon_color: green
+              - type: custom:mushroom-entity-card
+                entity: sensor.export_profitability
+                name: Net Profit/kWh
+                icon_color: amber
+              - type: custom:mushroom-entity-card
+                entity: sensor.grid_energy_export_today
+                name: Export Vol.
+                icon_color: blue
+              - type: custom:mushroom-entity-card
+                entity: sensor.today_export_profit_accumulative
+                name: Earned Today
+                icon_color: green
+              - type: custom:mushroom-entity-card
+                entity: sensor.monthly_grid_battery_charge_cost
+                name: Month Chg Cost
+                icon_color: purple
+              - type: custom:mushroom-entity-card
+                entity: sensor.today_peak_dtg_export
+                name: Peak Dump Vol
+                icon_color: orange
+              - type: custom:mushroom-entity-card
+                entity: sensor.today_peak_dtg_profit
+                name: Peak Profit
+                icon_color: light-green
+              - type: custom:mushroom-entity-card
+                entity: input_number.lifetime_solar_savings
+                name: Lifetime Savings
+                icon_color: gold
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: gauge
+                name: Battery SOC
+                unit: "%"
+                entity: sensor.envoy_EnvoyMAC_battery
+                min: 0
+                max: 100
+                severity:
+                  green: 20
+                  yellow: 10
+                  red: 0
+                card_mod:
+                  style: >
+                    ha-card { border-radius: 12px; background:
+                    rgba(255,255,255,0.02) !important; }
+              - type: gauge
+                name: Export Profitability
+                unit: p
+                entity: sensor.export_profitability
+                min: -15
+                max: 35
+                needle: true
+                severity:
+                  green: 0.1
+                  yellow: -5
+                  red: -15
+                card_mod:
+                  style: >
+                    ha-card { border-radius: 12px; background:
+                    rgba(255,255,255,0.02) !important; }
+          - type: markdown
+            content: |
+              ### 🎛️ Controls & Overrides
+            card_mod:
+              style: >-
+                ha-card {background: transparent !important; border: none
+                !important; box-shadow: none !important; padding-bottom: 0px
+                !important; margin-top: 8px !important;}
+          - type: grid
+            columns: 2
+            square: false
+            card_mod:
+              style: >-
+                ha-card {background: transparent !important; border: none
+                !important; box-shadow: none !important; margin-top: -8px
+                !important;}
+            cards:
+              - type: custom:mushroom-template-card
+                entity: switch.iq_battery_discharge_to_grid_schedule
+                primary: Force Export
+                secondary: >-
+                  {{ states('switch.iq_battery_discharge_to_grid_schedule') |
+                  title }}
+                icon: mdi:battery-arrow-up
+                icon_color: >-
+                  {{ 'yellow' if
+                  is_state('switch.iq_battery_discharge_to_grid_schedule', 'on')
+                  else 'disabled' }}
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+              - type: custom:mushroom-template-card
+                entity: switch.iq_battery_charge_battery_from_grid
+                primary: Force Charge
+                secondary: >-
+                  {{ states('switch.iq_battery_charge_battery_from_grid') |
+                  title }}
+                icon: mdi:battery-arrow-down
+                icon_color: >-
+                  {{ 'blue' if
+                  is_state('switch.iq_battery_charge_battery_from_grid', 'on')
+                  else 'disabled' }}
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+          - type: custom:bubble-card
+            card_type: button
+            button_type: name
+            name: System Configuration & Logs
+            icon: mdi:cogs
+            tap_action:
+              action: navigate
+              navigation_path: "#system-config"
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            title: 🔮 Next Expected Behaviour
+            card_mod:
+              style: |
+                ha-card {
+                  border-radius: 12px;
+                  border-left: 6px solid 
+                  {% set soc = states('sensor.envoy_EnvoyMAC_battery') | float(0) %}
+                  {% set reserve = states('sensor.dynamic_reserve') | float(0) %}
+                  {% set winter = is_state('input_boolean.winter_mode', 'on') %}
+                  {% set holiday = is_state('input_boolean.holiday_mode', 'on') %}
+                  {% set is_profitable = states('sensor.export_profitability') | float(0) > 0 %}
+                  {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+                  {% set smart_peak = is_state('binary_sensor.smart_peak_export_active', 'on') %}
+                  {% set rescue = is_state('switch.enphase_cfg_mode', 'on') and is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching', 'on') and (now().hour >= 5 and now().hour < 23) %}
+                  {% set dfs = is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions', 'on') %}
+                  
+                  {% if dfs %} #ff4500
+                  {% elif holiday %} #9b59b6
+                  {% elif rescue %} #3498db
+                  {% elif car %} #e74c3c
+                  {% elif winter and is_profitable and soc < reserve %} #5dade2
+                  {% elif soc < reserve and not is_profitable and not smart_peak %} #7f8c8d
+                  {% elif is_profitable or smart_peak %} #2ecc71
+                  {% else %} #f1c40f
+                  {% endif %};
+                }
+            content: >
+              {% set soc = states('sensor.envoy_EnvoyMAC_battery') |
+              float(0) %}
 
-          {# NEW: DFS Saving Session Tracker #} {% set dfs =
-          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
-          'on') %}
+              {% set reserve = states('sensor.dynamic_reserve') | float(0) %}
 
-          **Current Strategy:** {% if dfs %}
-            {% set dfs_rate = states('sensor.next_saving_session_reward') | float(0) %}
-            🔥 **SAVING SESSION:** God Mode active! Dumping to the grid at an incredible {{ dfs_rate }}p/kWh!
-          {% elif holiday %}
-            ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
-          {% elif rescue %}
-            🚑 **IOG RESCUE:** Octopus triggered a cheap daytime slot! Topping up a low battery.
-          {% elif car %}
-            🚗 **BLOCK:** EV is charging or in cheap window.
-          {% elif winter and is_profitable and soc < reserve %}
-            ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter reserve ({{reserve}}%).
-          {% elif soc < reserve and not is_profitable and not smart_peak %}
-            🔋 **HOLDING:** SOC {{soc}}% is below Reserve ({{reserve}}%).
-          {% elif is_profitable or smart_peak %}
-            💸 **EXPORTING:** Active for {{ 'Profit' if is_profitable else 'Smart Peak Surplus' }}.
-          {% else %}
-            🏠 **HOUSE LOAD:** Saving power for home usage.
-          {% endif %}
-      - type: markdown
-        title: 🚦 Export Logic Checklist
-        content: >
-          {% set free_power =
-          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_free_electricity',
-          'on') %} {% set soc = states('sensor.envoy_EnvoyMAC_battery') |
-          float(0) %} {% set floor = states('sensor.battery_export_floor') |
-          float(0) %}  {% set profit_val = states('sensor.export_profitability')
-          | float(0) %} {% set winter = is_state('input_boolean.winter_mode',
-          'on') %}  {% set holiday = is_state('input_boolean.holiday_mode',
-          'on') %}  {% set car = is_state('binary_sensor.hard_block_active',
-          'on') %}  {% set peak = is_state('binary_sensor.in_peak_window', 'on')
-          %}   {% set smart_peak =
-          is_state('binary_sensor.smart_peak_export_active', 'on') %} {% set dfs
-          =
-          is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
-          'on') %}
+              {% set winter = is_state('input_boolean.winter_mode', 'on') %}
 
-          **Blocks** 
+              {% set holiday = is_state('input_boolean.holiday_mode', 'on') %}
 
-          - Car/Cheap Window Inactive {{ '✅' if not car else '❌' }} 
+              {% set is_profitable = states('sensor.export_profitability') |
+              float(0) > 0 %}
 
-          - Winter Safety Check {{ '✅' if not winter or holiday or (winter and
-          soc > floor) or smart_peak or dfs else '⚠️' }}
+              {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+
+              {% set smart_peak =
+              is_state('binary_sensor.smart_peak_export_active', 'on') %}
+
+              {% set rescue = is_state('switch.enphase_cfg_mode', 'on') and
+              is_state('binary_sensor.octopus_energy_IntelligentDispatchVehicleId_intelligent_dispatching',
+              'on') and (now().hour >= 5 and now().hour < 23) %}
+
+              {% set dfs =
+              is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
+              'on') %}
 
 
-          **Triggers** 
+              **Current Strategy:** {% if dfs %}
+                {% set raw_rate = states('sensor.octopus_energy_electricity_OctopusExportMPAN_export_current_rate') | float(0) %}
+                {% set export_p = (raw_rate * 100) if raw_rate < 1.0 else raw_rate %}
+                🔥 **SAVING SESSION:** God Mode active! Dumping to the grid at {{ export_p | round(2) }}p/kWh + Octopoints bonus!
+              {% elif holiday %}
+                ✈️ **HOLIDAY MODE:** Maximizing exports. AI tracking frozen.
+              {% elif rescue %}
+                🚑 **IOG RESCUE:** Octopus triggered a cheap daytime slot! Topping up a low battery.
+              {% elif car %}
+                🚗 **BLOCK:** EV is charging or in cheap window.
+              {% elif winter and is_profitable and soc < reserve %}
+                ❄️ **WINTER HOLD:** Profitable, but SOC {{soc}}% is below winter reserve ({{reserve}}%).
+              {% elif soc < reserve and not is_profitable and not smart_peak %}
+                🔋 **HOLDING:** SOC {{soc}}% is below Reserve ({{reserve}}%).
+              {% elif is_profitable or smart_peak %}
+                💸 **EXPORTING:** Active for {{ 'Profit' if is_profitable else 'Smart Peak Surplus' }}.
+              {% else %}
+                🏠 **HOUSE LOAD:** Saving power for home usage.
+              {% endif %}
+          - type: markdown
+            title: 🚦 Export Logic Checklist
+            card_mod:
+              style: |
+                ha-card { border-radius: 12px; border-left: 6px solid #2ecc71; }
+            content: >
+              {% set free_power =
+              is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_free_electricity',
+              'on') %}
 
-          - Saving Session (DFS) Active {{ '🔥' if dfs else '❌' }}
+              {% set soc = states('sensor.envoy_EnvoyMAC_battery') |
+              float(0) %}
 
-          - Profit Opportunity ({{ profit_val }}p) {{ '✅' if profit_val > 0 else
-          '❌' }} 
+              {% set floor = states('sensor.battery_export_floor') | float(0) %}
 
-          - Smart Peak Surplus {{ '✅' if smart_peak else '❌' }}
+              {% set profit_val = states('sensor.export_profitability') |
+              float(0) %}
+
+              {% set winter = is_state('input_boolean.winter_mode', 'on') %}
+
+              {% set holiday = is_state('input_boolean.holiday_mode', 'on') %}
+
+              {% set car = is_state('binary_sensor.hard_block_active', 'on') %}
+
+              {% set peak = is_state('binary_sensor.in_peak_window', 'on') %}
+
+              {% set smart_peak =
+              is_state('binary_sensor.smart_peak_export_active', 'on') %}
+
+              {% set dfs =
+              is_state('binary_sensor.octopus_energy_a_OctopusAccountId_octoplus_saving_sessions',
+              'on') %}
 
 
-          --- 
+              **Blocks Validation** * Car/Cheap Window Inactive: {{ '✅' if not
+              car else '❌' }} 
+
+              * Winter Safety Check: {{ '✅' if not winter or holiday or (winter
+              and soc > floor) or smart_peak or dfs else '⚠️' }}
 
 
-          **System Verdict:**   {% if free_power %}
-            🎉 FREE POWER VACUUM (FORCED GRID CHARGE)
-          {% elif dfs %}
-            🔥 SAVING SESSION (GOD MODE)
-          {% elif car %}
-            🛑 BLOCKED (EV/CHEAP)
-          {% elif holiday and profit_val > 0 %}
-            ✈️ HOLIDAY EXPORT
-          {% elif winter and profit_val > 0 and soc < floor and not smart_peak
-          %}
-            ❄️ WINTER PROTECT
-          {% elif profit_val > 0 or smart_peak %}
-            ✅ READY TO EXPORT
-          {% else %}
-            🏠 HOLDING FOR HOUSE
-          {% endif %}
-      - type: markdown
-        title: Grid Charge Decision (23:30)
-        content: >
-          {% set target = states('sensor.calculated_target_soc') | float(0) %}
-          {% set current = states('sensor.envoy_EnvoyMAC_battery') |
-          float(0) %} {% set forecast =
-          states('sensor.combined_solar_forecast_tomorrow') | float(0) %} {% set
-          threshold = states('input_number.grid_charge_forecast_threshold') |
-          float(12.0) %}
+              **Triggers Evaluation** * Saving Session (DFS) Active: {{ '🔥' if
+              dfs else '❌' }}
 
-          {# Arbitrage Math for the UI #} {% set rte =
-          states('input_number.battery_efficiency_rte') | float(0.83) %} {% set
-          raw_imp =
-          states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate')
-          | float(0) %} {% set import_rate = (raw_imp * 100) if raw_imp < 1.0
-          else raw_imp %}
+              * Profit Opportunity ({{ profit_val }}p): {{ '✅' if profit_val > 0
+              else '❌' }} 
 
-          {% set export_event =
-          state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates',
-          'rates') or [] %} {% set current_event =
-          state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates',
-          'rates') or [] %} {% set rates = export_event if export_event | length
-          > 0 else current_event %}
+              * Smart Peak Surplus: {{ '✅' if smart_peak else '❌' }}
 
-          {% set ns = namespace(total=0.0, count=0) %} {% for r in rates %}
-            {% set start_dt = as_datetime(r.start) | as_local %}
-            {% if start_dt.time() >= strptime('09:00', '%H:%M').time() and start_dt.time() < strptime('16:00', '%H:%M').time() %}
-              {% set val = r.value_inc_vat %}
-              {% set rate_p = (val * 100) if val < 1.0 else val %}
-              {% set ns.total = ns.total + rate_p %}
-              {% set ns.count = ns.count + 1 %}
-            {% endif %}
-          {% endfor %} {% set avg_day_export = (ns.total / ns.count) if ns.count
-          > 0 else 0 %} {% set is_profitable = (avg_day_export * rte) >
-          import_rate %}
 
-          **System Verdict:** {% if target > current %} ✅ CHARGING TONIGHT {%
-          else %} 💤 STAYING IDLE {% endif %}
+              ---
 
-          **Target SOC:** {{ target | round(0) }}% *(Current: {{ current |
-          round(0) }}%)*
 
-          **Why?** {% if is_profitable %} 📈 **Wall Street Mode:** Tomorrow's
-          average daytime export rate ({{ avg_day_export | round(2) }}p) beats
-          tonight's import rate ({{ import_rate | round(2) }}p) even after
-          battery loss. Filling to 100% so all daytime solar is forced out to
-          the grid for pure profit!
+              **System Verdict:**
 
-          {% elif forecast < threshold %} ☁️ **Bad Weather Override:**
-          Tomorrow's solar forecast ({{ forecast | round(1) }} kWh) is below the
-          {{ threshold }} kWh safety limit. Charging to 100% to protect the
-          house.
+              {% if free_power %}
+                🎉 FREE POWER VACUUM (FORCED GRID CHARGE)
+              {% elif dfs %}
+                🔥 SAVING SESSION (GOD MODE)
+              {% elif car %}
+                🛑 BLOCKED (EV/CHEAP)
+              {% elif holiday and profit_val > 0 %}
+                ✈️ HOLIDAY EXPORT
+              {% elif winter and profit_val > 0 and soc < floor and not
+              smart_peak %}
+                ❄️ WINTER PROTECT
+              {% elif profit_val > 0 or smart_peak %}
+                ✅ READY TO EXPORT
+              {% else %}
+                🏠 HOLDING FOR HOUSE
+              {% endif %}
+          - type: markdown
+            title: ⚡ Grid Charge Decision (23:30)
+            card_mod:
+              style: |
+                ha-card { border-radius: 12px; border-left: 6px solid #3498db; }
+            content: >
+              {% set target = states('sensor.calculated_target_soc') | float(0)
+              %}
 
-          {% else %} 🛡️ **Dynamic Survival Charge:** Tomorrow's sun is great.
-          Target set to {{ target | round(0) }}% to survive the overnight burn
-          rate without wasting space for tomorrow's free solar. {% endif %}
-      - type: entities
-        title: Controls & Overrides
-        show_header_toggle: false
-        entities:
-          - entity: switch.enphase_dtg_mode
-            name: Force Export / Last Action
-            type: simple-entity
-            secondary_info: last-changed
-          - entity: switch.enphase_cfg_mode
-            name: Force Charge / Last Action
-            type: simple-entity
-            secondary_info: last-changed
-      - type: entities
-        title: System Stats & Weather
-        entities:
-          - type: section
-            label: Live Status
-          - entity: binary_sensor.hard_block_active
-            name: Hard Block (EV/Cheap)
-          - entity: binary_sensor.in_peak_window
-            name: Peak Period
-          - entity: sensor.next_greener_night
-          - entity: sensor.next_saving_session
-            name: Next Octoplus Saving Session
-          - entity: sensor.next_free_electricity_session
-            name: Next Free Electricity Session
-          - type: section
-            label: Evening & Export Strategy
-          - entity: sensor.dynamic_reserve
-            name: Current Dynamic Reserve Target
-          - entity: sensor.battery_export_floor
-            name: Peak Export Floor
-          - entity: sensor.today_s_golden_export_slot
-            name: Today's Golden Export Slot
-            icon: mdi:clock-fast
-          - entity: sensor.average_evening_usage_7d
-            name: 7-Day Avg Evening Usage (Learned)
-          - entity: sensor.battery_time_remaining_real_world
-            name: Battery Hours Left (Smoothed)
-          - entity: sensor.battery_depleted_at
-            name: Expected Depletion Time
-          - type: section
-            label: Morning Charge Strategy
-          - entity: sensor.calculated_target_soc
-            name: Target SOC (Overnight Charge)
-          - entity: sensor.average_morning_usage_7d
-            name: 7-Day Avg Morning Usage (Learned)
-          - entity: sensor.morning_solar_yield_forecast
-            name: Morning Solar Yield Forecast
-          - type: section
-            label: Solar Forecaster
-          - entity: sensor.combined_solar_forecast_today
-            name: Total Expected Today
-          - entity: sensor.envoy_EnvoyMAC_energy_production_today
-            name: Generated Today
-          - entity: sensor.combined_solar_forecast_remaining
-            name: Solar Left Today
-          - entity: sensor.combined_solar_forecast_tomorrow
-            name: Total Expected Tomorrow
-      - type: history-graph
-        title: SOC vs Reserve (Last 24h)
-        hours_to_show: 24
-        entities:
-          - entity: sensor.envoy_EnvoyMAC_battery
-            name: Battery SOC
-          - entity: sensor.dynamic_reserve
-            name: Reserve Target
-          - entity: sensor.battery_export_floor
-      - type: history-graph
-        title: Solar Generation (Last 24h)
-        hours_to_show: 24
-        entities:
-          - entity: sensor.envoy_EnvoyMAC_current_power_production
-            name: Actual (kW)
-          - entity: sensor.combined_solar_forecast_power
-            name: Estimate (kW)
-      - type: history-graph
-        title: Solar Generation (Last Week)
-        hours_to_show: 168
-        entities:
-          - entity: sensor.envoy_EnvoyMAC_current_power_production
-            name: Actual (kW)
-      - type: history-graph
-        title: Profitability Trend (Last 24h)
-        hours_to_show: 24
-        entities:
-          - entity: sensor.export_profitability
-            name: Net Profit (p)
+              {% set current = states('sensor.envoy_EnvoyMAC_battery') |
+              float(0) %}
+
+              {% set forecast =
+              states('sensor.combined_solar_forecast_tomorrow') | float(0) %}
+
+              {% set threshold =
+              states('input_number.grid_charge_forecast_threshold') |
+              float(12.0) %}
+
+              {% set rte = states('input_number.battery_efficiency_rte') |
+              float(0.83) %}
+
+              {% set raw_imp =
+              states('sensor.octopus_energy_electricity_OctopusImportMPAN_current_rate')
+              | float(0) %}
+
+              {% set import_rate = (raw_imp * 100) if raw_imp < 1.0 else raw_imp
+              %}
+
+              {% set export_event =
+              state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates',
+              'rates') or [] %}
+
+              {% set current_event =
+              state_attr('event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates',
+              'rates') or [] %}
+
+              {% set rates = export_event if export_event | length > 0 else
+              current_event %}
+
+              {% set ns = namespace(total=0.0, count=0) %}
+
+              {% for r in rates %}
+                {% set start_dt = as_datetime(r.start) | as_local %}
+                {% if start_dt.time() >= strptime('09:00', '%H:%M').time() and start_dt.time() < strptime('16:00', '%H:%M').time() %}
+                  {% set val = r.value_inc_vat %}
+                  {% set rate_p = (val * 100) if val < 1.0 else val %}
+                  {% set ns.total = ns.total + rate_p %}
+                  {% set ns.count = ns.count + 1 %}
+                {% endif %}
+              {% endfor %}
+
+              {% set avg_day_export = (ns.total / ns.count) if ns.count > 0 else
+              0 %}
+
+              {% set is_profitable = (avg_day_export * rte) > import_rate %}
+
+
+              **System Verdict:** {{ '✅ CHARGING TONIGHT' if target > current
+              else '💤 STAYING IDLE' }}
+
+
+              **Target SOC:** {{ target | round(0) }}% *(Current: {{ current |
+              round(0) }}%)*
+
+
+              **Arbitrage Logic Strategy:**
+
+              {% if is_profitable %}
+                📈 **Wall Street Mode:** Tomorrow's average daytime export rate ({{ avg_day_export | round(2) }}p) beats tonight's import rate ({{ import_rate | round(2) }}p) after round-trip losses ({{ (rte * 100) | round(0) }}% RTE). Packing battery to 100% to force all raw solar out to the grid!
+              {% elif forecast < threshold %}
+                ☁️ **Bad Weather Override:** Tomorrow's solar forecast ({{ forecast | round(1) }} kWh) falls short of your {{ threshold }} kWh safety threshold. Grid charging to protect domestic base loads.
+              {% else %}
+                🛡️ **Dynamic Survival Charge:** Solar yields look secure. Target bound to {{ target | round(0) }}% to coast through baseline overnight burns without crowding tomorrow's free production space.
+              {% endif %}
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: |
+              ## 📊 Automation Telemetry
+            card_mod:
+              style: >-
+                ha-card {background: transparent !important; border: none
+                !important; box-shadow: none !important; padding-bottom: 0px
+                !important;}
+          - type: grid
+            columns: 2
+            square: false
+            card_mod:
+              style: >-
+                ha-card {background: transparent !important; border: none
+                !important; box-shadow: none !important; margin-top: -8px
+                !important;}
+            cards:
+              - type: custom:mushroom-template-card
+                entity: binary_sensor.hard_block_active
+                primary: Hard Block (EV/Cheap)
+                secondary: "{{ states('binary_sensor.hard_block_active') }}"
+                icon: mdi:car-speed-limiter
+                icon_color: >-
+                  {{ 'red' if is_state('binary_sensor.hard_block_active', 'on')
+                  else 'disabled' }}
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+              - type: custom:mushroom-template-card
+                entity: binary_sensor.in_peak_window
+                primary: Peak Period
+                secondary: "{{ states('binary_sensor.in_peak_window') }}"
+                icon: mdi:lightning-bolt
+                icon_color: >-
+                  {{ 'red' if is_state('binary_sensor.in_peak_window', 'on')
+                  else 'disabled' }}
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+              - type: custom:mushroom-template-card
+                entity: sensor.next_saving_session
+                primary: Saving Session
+                secondary: "{{ states('sensor.next_saving_session') }}"
+                icon: mdi:fire
+                icon_color: >-
+                  {{ 'orange' if states('sensor.next_saving_session') not in
+                  ['None Scheduled', 'unavailable', 'unknown'] else 'disabled'
+                  }}
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+              - type: custom:mushroom-template-card
+                entity: sensor.next_free_electricity_session
+                primary: Free Power Slot
+                secondary: "{{ states('sensor.next_free_electricity_session') }}"
+                icon: mdi:gift
+                icon_color: >-
+                  {{ 'blue' if states('sensor.next_free_electricity_session')
+                  not in ['None Scheduled', 'unavailable', 'unknown'] else
+                  'disabled' }}
+                card_mod:
+                  style: >-
+                    ha-card {background: rgba(255,255,255,0.03) !important;
+                    border-radius: 12px;}
+          - type: custom:bar-card
+            title: Strategy Targets (%)
+            height: 36px
+            direction: right
+            decimal: 0
+            positions:
+              icon: outside
+              indicator: "off"
+              name: inside
+              value: inside
+            card_mod:
+              style: "ha-card {border-radius: 12px; margin-top: 8px !important;}"
+            entities:
+              - entity: sensor.dynamic_reserve
+                name: Dynamic Reserve Target
+                min: 0
+                max: 100
+                color: "#3498db"
+              - entity: sensor.battery_export_floor
+                name: Peak Export Floor
+                min: 0
+                max: 100
+                color: "#e67e22"
+              - entity: sensor.calculated_target_soc
+                name: Overnight Charge Target
+                min: 0
+                max: 100
+                color: "#9b59b6"
+          - type: custom:bar-card
+            title: Solar Projections (kWh)
+            height: 36px
+            direction: right
+            decimal: 1
+            positions:
+              icon: outside
+              indicator: "off"
+              name: inside
+              value: inside
+            card_mod:
+              style: "ha-card {border-radius: 12px; margin-top: 8px !important;}"
+            entities:
+              - entity: sensor.morning_solar_yield_forecast
+                name: Morning Yield Forecast
+                min: 0
+                max: 25
+                color: "#f39c12"
+              - entity: sensor.combined_solar_forecast_today
+                name: Total Expected Today
+                min: 0
+                max: 45
+                color: "#f1c40f"
+              - entity: sensor.envoy_EnvoyMAC_actual_solar_produced_today
+                name: Generated Today
+                min: 0
+                max: 45
+                color: "#2ecc71"
+              - entity: sensor.combined_solar_forecast_remaining
+                name: Solar Left Today
+                min: 0
+                max: sensor.combined_solar_forecast_today
+                color: "#e67e22"
+              - entity: sensor.combined_solar_forecast_tomorrow
+                name: Total Expected Tomorrow
+                min: 0
+                max: 45
+                color: "#f39c12"
+          - type: custom:mushroom-template-card
+            primary: Expected Depletion Horizon
+            secondary: >-
+              {% set time = states('sensor.battery_depleted_at') %} {% if time
+              == 'unavailable' or time == 'unknown' %}
+                Holding Charge / Charging
+              {% elif time < '23:30' and time > '12:00' %}
+                {{ time }} — Falling short of 23:30 target!
+              {% else %}
+                {{ time }} — Making it to Cheap Rate!
+              {% endif %}
+            icon: mdi:battery-clock
+            icon_color: >-
+              {% set time = states('sensor.battery_depleted_at') %} {% if time
+              == 'unavailable' or time == 'unknown' %}
+                grey
+              {% elif time < '23:30' and time > '12:00' %}
+                red
+              {% else %}
+                green
+              {% endif %}
+            card_mod:
+              style: >-
+                ha-card {background: rgba(255,255,255,0.03) !important;
+                border-radius: 12px; margin-top: 8px !important;}
+          - type: entities
+            card_mod:
+              style: "ha-card {border-radius: 12px; margin-top: 8px !important;}"
+            entities:
+              - entity: sensor.today_s_golden_export_slot
+                name: Today's Golden Export Slot
+                icon: mdi:clock-fast
+              - entity: sensor.average_evening_usage_7d
+                name: 7-Day Learned Evening Demand
+              - entity: sensor.average_morning_usage_7d
+                name: 7-Day Learned Morning Demand
+              - entity: sensor.battery_time_remaining_real_world
+                name: Battery Autonomy Hours
       - type: custom:apexcharts-card
         header:
           show: true
-          title: Export Rates (Today & Tomorrow)
+          title: Export Arbitrage Array (48h)
           show_states: false
           colorize_states: true
         graph_span: 48h
@@ -298,19 +548,23 @@ views:
         now:
           show: true
           label: Now
-          color: '#ff0000'
+          color: "#ff0000"
         yaxis:
           - min: 0
             decimals: 1
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
         series:
           - entity: >-
               event.octopus_energy_electricity_OctopusExportMPAN_export_current_day_rates
-            name: Today's Rates
+            name: Current Cycle Rates
             unit: p
             type: area
             curve: stepline
-            opacity: 0.3
-            color: '#00b300'
+            opacity: 0.2
+            color: "#00b300"
             extend_to: false
             show:
               legend_value: false
@@ -320,71 +574,214 @@ views:
               });
           - entity: >-
               event.octopus_energy_electricity_OctopusExportMPAN_export_next_day_rates
-            name: Tomorrow's Rates
+            name: Next Cycle Projections
             unit: p
             type: area
             curve: stepline
-            opacity: 0.3
-            color: '#0080ff'
+            opacity: 0.2
+            color: "#0080ff"
             extend_to: false
             show:
               legend_value: false
             data_generator: >
               if (!entity || !entity.attributes || !entity.attributes.rates)
-              return [];
-
-              return entity.attributes.rates.map((entry) => {
+              return []; return entity.attributes.rates.map((entry) => {
                 return [new Date(entry.start).getTime(), (entry.value_inc_vat * 100)];
               });
-      - type: history-graph
-        title: Power Flow (Last 24h)
-        hours_to_show: 24
-        entities:
-          - entity: sensor.solar_production_clean_kw
-            name: Solar Production (kW)
-          - entity: sensor.house_consumption_clean_kw
-            name: House Consumption (kW)
-          - entity: sensor.grid_net_power_kw
-            name: Grid Net Import/Export (kW)
-      - type: vertical-stack
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: SOC vs Reserve Targets (24h)
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
+        series:
+          - entity: sensor.envoy_EnvoyMAC_battery
+            name: Real SOC
+            type: area
+            opacity: 0.2
+            color: "#2ecc71"
+            stroke_width: 2
+          - entity: sensor.dynamic_reserve
+            name: Dynamic Floor
+            type: line
+            color: "#3498db"
+            curve: stepline
+            stroke_width: 2
+          - entity: sensor.battery_export_floor
+            name: Hard Export Floor
+            type: line
+            color: "#e67e22"
+            curve: stepline
+            stroke_width: 2
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: "#system-config"
+        name: ⚙️ System Configuration & Outage Logs
         cards:
           - type: entities
-            title: Gateway Health Monitor
             show_header_toggle: false
+            card_mod:
+              style: >-
+                ha-card { border: none !important; box-shadow: none !important;
+                margin: 0px !important; }
             entities:
+              - type: section
+                label: Core Tuning Scalars
+              - entity: input_number.grid_charge_forecast_threshold
+                name: Solar Safety Min (kWh)
+              - entity: input_number.battery_efficiency_rte
+                name: Scaled Round Trip Efficiency
+              - entity: input_number.agile_spike_threshold_p
+                name: Agile Export Spike Trigger
+              - entity: input_number.min_export_margin_p
+                name: Minimum Yield Delta (p)
+              - type: section
+                label: Seasonal baselines
+              - entity: input_boolean.winter_mode
+                name: Winter Hold Override
+              - entity: input_number.summer_evening_usage_kwh
+                name: Summer Base Draw
+              - entity: input_number.summer_reserve_floor
+                name: Summer Floor SoC
+              - entity: input_number.winter_evening_usage_kwh
+                name: Winter Base Draw
+              - entity: input_number.winter_reserve_floor
+                name: Winter Floor SoC
+              - type: section
+                label: Active Vacation Parameters
+              - entity: input_boolean.holiday_mode
+                name: Vacation Lockout
+              - entity: input_number.holiday_morning_usage_kwh
+                name: Away Base Morning Draw
+              - entity: input_number.holiday_evening_usage_kwh
+                name: Away Base Evening Draw
+              - entity: input_number.holiday_reserve_floor
+                name: Vacation Safety Floor
+              - type: section
+                label: Gateway Diagnostics
               - entity: binary_sensor.enphase_gateway_status
-                name: Current Connection
+                name: API Connection State
                 secondary_info: last-changed
-              - entity: sensor.envoy_EnvoyMAC_battery
-                name: Gateway Heartbeat (SOC)
           - type: logbook
-            title: Recent Connection Drops
+            title: Recent Outage Logs
+            card_mod:
+              style: >-
+                ha-card { border: none !important; box-shadow: none !important;
+                }
             entities:
               - binary_sensor.enphase_gateway_status
             hours_to_show: 48
-      - type: entities
-        title: System Variables
-        entities:
-          - type: section
-            label: Core Settings
-          - entity: input_number.grid_charge_forecast_threshold
-          - entity: input_number.battery_efficiency_rte
-          - entity: input_number.agile_spike_threshold_p
-          - entity: input_number.min_export_margin_p
-          - type: section
-            label: Summer Fallbacks
-          - entity: input_number.summer_evening_usage_kwh
-          - entity: input_number.summer_reserve_floor
-          - type: section
-            label: Winter Fallbacks
-          - entity: input_boolean.winter_mode
-            icon: mdi:snowflake
-          - entity: input_number.winter_evening_usage_kwh
-          - entity: input_number.winter_reserve_floor
-          - type: section
-            label: Holiday Override
-          - entity: input_boolean.holiday_mode
-          - entity: input_number.holiday_morning_usage_kwh
-          - entity: input_number.holiday_evening_usage_kwh
-          - entity: input_number.holiday_reserve_floor
+  - title: Analytics
+    path: smart_export_analytics
+    icon: mdi:chart-bell-curve-cumulative
+    type: masonry
+    cards:
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Profitability Vector (24h)
+          show_states: true
+        graph_span: 24h
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
+        series:
+          - entity: sensor.export_profitability
+            name: Net Margin (p)
+            type: area
+            curve: stepline
+            opacity: 0.2
+            color: "#9b59b6"
+            stroke_width: 2
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Power Flow Balance (24h)
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
+        series:
+          - entity: sensor.solar_production_clean_kw
+            name: Net Gen
+            type: area
+            opacity: 0.2
+            color: "#f1c40f"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5m
+          - entity: sensor.house_consumption_clean_kw
+            name: House Draw
+            type: area
+            opacity: 0.2
+            color: "#3498db"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5m
+          - entity: sensor.grid_net_power_kw
+            name: Grid Vector
+            type: line
+            color: "#e74c3c"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5m
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Yield Estimation Delta (24h)
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
+        series:
+          - entity: sensor.envoy_EnvoyMAC_current_power_production
+            name: Realized Gen
+            type: area
+            opacity: 0.3
+            color: "#2ecc71"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5m
+          - entity: sensor.combined_solar_forecast_power
+            name: Solcast Model
+            type: line
+            color: "#f39c12"
+            stroke_width: 2
+            curve: smooth
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Historic Generation Matrix (7d)
+          show_states: false
+        graph_span: 7d
+        card_mod:
+          style: >-
+            ha-card { border-radius: 12px; background: rgba(255,255,255,0.01)
+            !important; margin-top: 8px !important; }
+        series:
+          - entity: sensor.envoy_EnvoyMAC_current_power_production
+            name: Yield
+            type: area
+            opacity: 0.2
+            color: "#3498db"
+            stroke_width: 1
+            group_by:
+              func: avg
+              duration: 15m
 
